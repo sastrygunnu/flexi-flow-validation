@@ -217,6 +217,10 @@ export function groupLogsByRun(logs: AuditLog[]): FlowRun[] {
     const last = sorted[sorted.length - 1];
     const totalDurationMs = sorted.reduce((sum, s) => sum + s.durationMs, 0);
     const totalCostUsd = sorted.reduce((sum, s) => sum + s.costUsd, 0);
+    const totalCostUsdc = sorted.reduce((sum, s) => sum + s.costUsdc, 0);
+    const avgArcSettlementNs = Math.round(
+      sorted.reduce((sum, s) => sum + s.arcSettlementNs, 0) / sorted.length,
+    );
     const status: LogStatus = sorted.some((s) => s.status === "timeout")
       ? "timeout"
       : sorted.some((s) => s.status === "failed")
@@ -230,6 +234,9 @@ export function groupLogsByRun(logs: AuditLog[]): FlowRun[] {
       endedAt: last.timestamp,
       totalDurationMs,
       totalCostUsd,
+      totalCostUsdc,
+      avgArcSettlementNs,
+      nanopaymentCount: sorted.length,
       status,
       steps: sorted,
     });
