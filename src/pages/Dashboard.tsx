@@ -38,6 +38,7 @@ const Dashboard = () => {
               <TabsTrigger value="simulator">Simulator</TabsTrigger>
               <TabsTrigger value="flow-logs">Flow Logs</TabsTrigger>
               <TabsTrigger value="logs">Audit Logs</TabsTrigger>
+              <TabsTrigger value="costs">Cost Analytics</TabsTrigger>
             </TabsList>
 
             <TabsContent value="overview">
@@ -58,6 +59,10 @@ const Dashboard = () => {
 
             <TabsContent value="logs">
               <AuditLogs />
+            </TabsContent>
+
+            <TabsContent value="costs">
+              <CostAnalytics />
             </TabsContent>
           </Tabs>
         </div>
