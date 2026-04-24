@@ -1,11 +1,17 @@
+import { useState } from "react";
 import { Navbar } from "@/components/Navbar";
 import { FlowBuilder } from "@/components/dashboard/FlowBuilder";
 import { AuditLogs } from "@/components/dashboard/AuditLogs";
 import { FlowLogs } from "@/components/dashboard/FlowLogs";
 import { Simulator } from "@/components/dashboard/Simulator";
+import { Overview } from "@/components/dashboard/Overview";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+type TabKey = "overview" | "builder" | "simulator" | "flow-logs" | "logs";
+
 const Dashboard = () => {
+  const [tab, setTab] = useState<TabKey>("overview");
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Navbar />
@@ -24,13 +30,18 @@ const Dashboard = () => {
             </p>
           </div>
 
-          <Tabs defaultValue="builder" className="space-y-6">
+          <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="space-y-6">
             <TabsList>
+              <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="builder">Flow Builder</TabsTrigger>
               <TabsTrigger value="simulator">Simulator</TabsTrigger>
               <TabsTrigger value="flow-logs">Flow Logs</TabsTrigger>
               <TabsTrigger value="logs">Audit Logs</TabsTrigger>
             </TabsList>
+
+            <TabsContent value="overview">
+              <Overview onNavigate={(t) => setTab(t)} />
+            </TabsContent>
 
             <TabsContent value="builder">
               <FlowBuilder />
