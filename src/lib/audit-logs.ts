@@ -2,6 +2,23 @@ import { StepKind } from "./validation-steps";
 
 export type LogStatus = "success" | "failed" | "timeout";
 
+export type PaymentStatus = "paid" | "pending" | "failed" | "skipped";
+
+export interface PaymentInfo {
+  status: PaymentStatus; // settlement state of the per-API-call nanopayment
+  rail: "circle_arc" | "x402"; // which rail carried the value
+  amountUsdc: number; // amount paid for THIS api call
+  payerWallet: string; // your app wallet (debited)
+  payeeWallet: string; // provider wallet (credited)
+  arcTxHash: string; // Arc L1 settlement tx hash
+  nanopaymentId: string; // Circle Nanopayment id
+  settlementNs: number; // sub-second finality on Arc, in nanoseconds
+  invoiceId: string; // x402 / provider invoice reference
+  settledAt: string; // ISO timestamp settlement confirmed
+  gasUsdc: number; // protocol fee paid in USDC
+  reason?: string; // present when status != paid
+}
+
 export interface AuditLog {
   id: string;
   runId: string; // groups steps belonging to the same flow execution
@@ -15,11 +32,12 @@ export interface AuditLog {
   status: LogStatus;
   durationMs: number;
   costUsd: number;
-  // Circle Arc / Nanopayment settlement metadata
+  // Circle Arc / Nanopayment settlement metadata (mirrored on payment)
   costUsdc: number; // USDC settled on Arc (== costUsd at 1:1 peg, kept separate for clarity)
   arcTxHash: string; // Arc L1 settlement tx hash
   arcSettlementNs: number; // settlement latency in nanoseconds (Arc sub-second finality)
   nanopaymentId: string; // Circle Nanopayment id
+  payment: PaymentInfo; // per-API-call payment receipt
   input: Record<string, unknown>;
   output: Record<string, unknown>;
 }
