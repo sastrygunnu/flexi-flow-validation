@@ -157,6 +157,16 @@ export function Simulator() {
 
   const clearRuns = () => setRuns([]);
 
+  const handleReplay = (run: SimRun) => {
+    setStepKind(run.stepKind);
+    setProviderId(stepDef.providers.find(p => p.name === run.provider)?.id || stepDef.providers[0].id);
+    setScenario(run.scenario);
+    setPayload(JSON.stringify(run.input, null, 2));
+    toast.info("Replay loaded — ready to run", {
+      description: `${run.stepLabel} with ${run.scenario} scenario`,
+    });
+  };
+
   return (
     <div className="space-y-4">
       {/* Banner */}
@@ -330,6 +340,13 @@ export function Simulator() {
                       <span className="text-xs font-mono text-muted-foreground ml-auto">
                         {r.durationMs}ms · scenario: {r.scenario}
                       </span>
+                      <button
+                        onClick={() => handleReplay(r)}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:text-primary/80 transition-smooth"
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        Replay
+                      </button>
                     </div>
                     <div className="grid md:grid-cols-2 gap-3">
                       <div>
