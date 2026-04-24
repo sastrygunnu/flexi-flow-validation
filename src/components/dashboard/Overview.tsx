@@ -71,6 +71,12 @@ export function Overview({ onNavigate }: OverviewProps) {
       desc: "Drill into per-step API calls and export to CSV/PDF.",
       Icon: ScrollText,
     },
+    {
+      key: "costs" as const,
+      title: "Cost Analytics",
+      desc: "USDC spend per flow, step & provider — settled on Arc.",
+      Icon: Coins,
+    },
   ];
 
   const statusDot = {
