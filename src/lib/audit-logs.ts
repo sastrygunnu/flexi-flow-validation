@@ -32,8 +32,18 @@ export interface FlowRun {
   endedAt: string;
   totalDurationMs: number;
   totalCostUsd: number;
-  status: LogStatus; // worst status across steps
+  totalCostUsdc: number; // total USDC settled on Arc for this flow
+  avgArcSettlementNs: number; // average Arc settlement latency in nanoseconds
+  nanopaymentCount: number; // number of Circle Nanopayments emitted
+  status: LogStatus;
   steps: AuditLog[];
+}
+
+function randomHex(len: number) {
+  let s = "0x";
+  const chars = "0123456789abcdef";
+  for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * 16)];
+  return s;
 }
 
 const FLOWS = ["us_onboarding", "eu_onboarding", "high_risk_kyc"];
@@ -170,6 +180,8 @@ export function generateMockLogs(runCount = 18): AuditLog[] {
       const status: LogStatus =
         i === failAt ? (Math.random() < 0.5 ? "failed" : "timeout") : sample.status;
       cursor += sample.durationMs + Math.round(Math.random() * 200);
+      // Circle Arc finality: typically 200ns – 900ns sub-second nanopayment settlement
+      const arcSettlementNs = 200 + Math.floor(Math.random() * 700);
       logs.push({
         ...sample,
         status,
@@ -179,6 +191,10 @@ export function generateMockLogs(runCount = 18): AuditLog[] {
         timestamp: new Date(cursor).toISOString(),
         flow,
         userId,
+        costUsdc: sample.costUsd, // 1:1 USDC peg
+        arcTxHash: randomHex(64),
+        arcSettlementNs,
+        nanopaymentId: `np_${randomHex(16).slice(2)}`,
       });
       if (i === failAt) break; // flow halts on failure
     }
