@@ -1,6 +1,7 @@
 import { Navbar } from "@/components/Navbar";
 import { FlowBuilder } from "@/components/dashboard/FlowBuilder";
 import { AuditLogs } from "@/components/dashboard/AuditLogs";
+import { FlowLogs } from "@/components/dashboard/FlowLogs";
 import { Simulator } from "@/components/dashboard/Simulator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -27,6 +28,7 @@ const Dashboard = () => {
             <TabsList>
               <TabsTrigger value="builder">Flow Builder</TabsTrigger>
               <TabsTrigger value="simulator">Simulator</TabsTrigger>
+              <TabsTrigger value="flow-logs">Flow Logs</TabsTrigger>
               <TabsTrigger value="logs">Audit Logs</TabsTrigger>
             </TabsList>
 
@@ -36,6 +38,10 @@ const Dashboard = () => {
 
             <TabsContent value="simulator">
               <Simulator />
+            </TabsContent>
+
+            <TabsContent value="flow-logs">
+              <FlowLogs />
             </TabsContent>
 
             <TabsContent value="logs">
