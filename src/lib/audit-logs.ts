@@ -15,6 +15,11 @@ export interface AuditLog {
   status: LogStatus;
   durationMs: number;
   costUsd: number;
+  // Circle Arc / Nanopayment settlement metadata
+  costUsdc: number; // USDC settled on Arc (== costUsd at 1:1 peg, kept separate for clarity)
+  arcTxHash: string; // Arc L1 settlement tx hash
+  arcSettlementNs: number; // settlement latency in nanoseconds (Arc sub-second finality)
+  nanopaymentId: string; // Circle Nanopayment id
   input: Record<string, unknown>;
   output: Record<string, unknown>;
 }
