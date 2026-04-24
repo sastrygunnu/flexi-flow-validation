@@ -86,11 +86,25 @@ function StepDetail({ step }: { step: AuditLog }) {
           <meta.Icon className="h-3 w-3" />
           {meta.label}
         </span>
+        <span
+          className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+            step.payment.status === "paid"
+              ? "bg-success/10 text-success border-success/30"
+              : step.payment.status === "pending"
+              ? "bg-accent/10 text-accent border-accent/30"
+              : step.payment.status === "skipped"
+              ? "bg-muted text-muted-foreground border-border"
+              : "bg-destructive/10 text-destructive border-destructive/30"
+          }`}
+          title={`Nanopayment ${step.payment.status}`}
+        >
+          ◎ {step.payment.status}
+        </span>
         <span className="text-xs font-mono text-muted-foreground tabular-nums w-16 text-right">
           {step.durationMs}ms
         </span>
-        <span className="text-xs font-mono text-muted-foreground tabular-nums w-16 text-right">
-          ${step.costUsd.toFixed(3)}
+        <span className="text-xs font-mono text-muted-foreground tabular-nums w-20 text-right">
+          {step.payment.amountUsdc.toFixed(4)} USDC
         </span>
       </button>
       {open && (
