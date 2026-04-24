@@ -20,17 +20,17 @@ export const Hero = () => {
             className="text-5xl md:text-7xl font-extrabold tracking-tight leading-[1.05] animate-fade-in-up"
             style={{ animationDelay: "0.1s" }}
           >
-            Drag. Drop. <br />
-            <span className="text-gradient">Done.</span>
+            One API. <br />
+            Any provider. <br />
+            <span className="text-gradient">Instant switch.</span>
           </h1>
 
           <p
             className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed animate-fade-in-up"
             style={{ animationDelay: "0.2s" }}
           >
-            Build KYC flows visually — drag phone, ID, address and fraud checks into a sequence.
-            Run the entire flow with <span className="text-foreground font-mono text-base">one line of code</span>.
-            Switch providers from your dashboard. Zero rewrites, zero deploys.
+            Define your user validation flow once — phone, identity, address, fraud — and
+            swap providers in a dashboard without touching your code.
           </p>
 
           <div
