@@ -2,6 +2,23 @@ import { StepKind } from "./validation-steps";
 
 export type LogStatus = "success" | "failed" | "timeout";
 
+export type PaymentStatus = "paid" | "pending" | "failed" | "skipped";
+
+export interface PaymentInfo {
+  status: PaymentStatus; // settlement state of the per-API-call nanopayment
+  rail: "circle_arc" | "x402"; // which rail carried the value
+  amountUsdc: number; // amount paid for THIS api call
+  payerWallet: string; // your app wallet (debited)
+  payeeWallet: string; // provider wallet (credited)
+  arcTxHash: string; // Arc L1 settlement tx hash
+  nanopaymentId: string; // Circle Nanopayment id
+  settlementNs: number; // sub-second finality on Arc, in nanoseconds
+  invoiceId: string; // x402 / provider invoice reference
+  settledAt: string; // ISO timestamp settlement confirmed
+  gasUsdc: number; // protocol fee paid in USDC
+  reason?: string; // present when status != paid
+}
+
 export interface AuditLog {
   id: string;
   runId: string; // groups steps belonging to the same flow execution
@@ -15,11 +32,12 @@ export interface AuditLog {
   status: LogStatus;
   durationMs: number;
   costUsd: number;
-  // Circle Arc / Nanopayment settlement metadata
+  // Circle Arc / Nanopayment settlement metadata (mirrored on payment)
   costUsdc: number; // USDC settled on Arc (== costUsd at 1:1 peg, kept separate for clarity)
   arcTxHash: string; // Arc L1 settlement tx hash
   arcSettlementNs: number; // settlement latency in nanoseconds (Arc sub-second finality)
   nanopaymentId: string; // Circle Nanopayment id
+  payment: PaymentInfo; // per-API-call payment receipt
   input: Record<string, unknown>;
   output: Record<string, unknown>;
 }
@@ -49,7 +67,7 @@ function randomHex(len: number) {
 const FLOWS = ["us_onboarding", "eu_onboarding", "high_risk_kyc"];
 const USERS = ["usr_8f2a1", "usr_3b9c4", "usr_71ef0", "usr_22dde", "usr_9a4b3", "usr_55c2e"];
 
-const SAMPLES: Array<Omit<AuditLog, "id" | "timestamp" | "flow" | "userId" | "runId" | "stepIndex" | "costUsdc" | "arcTxHash" | "arcSettlementNs" | "nanopaymentId">> = [
+const SAMPLES: Array<Omit<AuditLog, "id" | "timestamp" | "flow" | "userId" | "runId" | "stepIndex" | "costUsdc" | "arcTxHash" | "arcSettlementNs" | "nanopaymentId" | "payment">> = [
   {
     stepKind: "phone",
     stepLabel: "Phone OTP",
@@ -182,19 +200,58 @@ export function generateMockLogs(runCount = 18): AuditLog[] {
       cursor += sample.durationMs + Math.round(Math.random() * 200);
       // Circle Arc finality: typically 200ns – 900ns sub-second nanopayment settlement
       const arcSettlementNs = 200 + Math.floor(Math.random() * 700);
+      const arcTxHash = randomHex(64);
+      const nanopaymentId = `np_${randomHex(16).slice(2)}`;
+      const settledAt = new Date(cursor).toISOString();
+
+      // Per-API-call payment receipt. Most successful calls settle on Arc via
+      // a Circle Nanopayment; failed calls usually skip charge, timeouts may
+      // leave a payment pending until the provider confirms.
+      const paymentStatus: PaymentStatus =
+        status === "success"
+          ? "paid"
+          : status === "timeout"
+          ? "pending"
+          : sample.costUsd === 0
+          ? "skipped"
+          : "failed";
+
+      const payment: PaymentInfo = {
+        status: paymentStatus,
+        rail: Math.random() < 0.85 ? "circle_arc" : "x402",
+        amountUsdc: paymentStatus === "paid" ? sample.costUsd : 0,
+        payerWallet: `0x${randomHex(40).slice(2)}`,
+        payeeWallet: `0x${randomHex(40).slice(2)}`,
+        arcTxHash,
+        nanopaymentId,
+        settlementNs: arcSettlementNs,
+        invoiceId: `inv_${randomHex(12).slice(2)}`,
+        settledAt,
+        gasUsdc: Number((0.00001 + Math.random() * 0.00004).toFixed(6)),
+        reason:
+          paymentStatus === "paid"
+            ? undefined
+            : paymentStatus === "pending"
+            ? "Awaiting provider confirmation"
+            : paymentStatus === "skipped"
+            ? "No charge — provider returned error before billable work"
+            : "Nanopayment rejected by provider",
+      };
+
       logs.push({
         ...sample,
         status,
         id: `log_${runId}_${i}`,
         runId,
         stepIndex: i,
-        timestamp: new Date(cursor).toISOString(),
+        timestamp: settledAt,
         flow,
         userId,
         costUsdc: sample.costUsd, // 1:1 USDC peg
-        arcTxHash: randomHex(64),
+        arcTxHash,
         arcSettlementNs,
-        nanopaymentId: `np_${randomHex(16).slice(2)}`,
+        nanopaymentId,
+        payment,
       });
       if (i === failAt) break; // flow halts on failure
     }
