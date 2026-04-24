@@ -1,6 +1,7 @@
 import { Navbar } from "@/components/Navbar";
 import { FlowBuilder } from "@/components/dashboard/FlowBuilder";
 import { AuditLogs } from "@/components/dashboard/AuditLogs";
+import { Simulator } from "@/components/dashboard/Simulator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const Dashboard = () => {
@@ -25,11 +26,16 @@ const Dashboard = () => {
           <Tabs defaultValue="builder" className="space-y-6">
             <TabsList>
               <TabsTrigger value="builder">Flow Builder</TabsTrigger>
+              <TabsTrigger value="simulator">Simulator</TabsTrigger>
               <TabsTrigger value="logs">Audit Logs</TabsTrigger>
             </TabsList>
 
             <TabsContent value="builder">
               <FlowBuilder />
+            </TabsContent>
+
+            <TabsContent value="simulator">
+              <Simulator />
             </TabsContent>
 
             <TabsContent value="logs">
