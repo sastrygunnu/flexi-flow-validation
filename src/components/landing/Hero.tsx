@@ -13,7 +13,7 @@ export const Hero = () => {
         <div className="max-w-4xl mx-auto text-center space-y-8">
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-xs font-medium text-primary animate-fade-in-up">
             <Sparkles className="h-3.5 w-3.5" />
-            One API. Every validation. Any provider.
+            One API. Every validation. Arc + USDC powered.
           </div>
 
           <h1
@@ -51,8 +51,8 @@ export const Hero = () => {
             style={{ animationDelay: "0.4s" }}
           >
             <span>✓ No vendor lock-in</span>
-            <span>✓ Pay per validation</span>
-            <span>✓ SOC 2 + GDPR ready</span>
+            <span>✓ Pay per validation (USDC)</span>
+            <span>✓ Arc settlement layer</span>
             <span>✓ &lt; 5 min integration</span>
           </div>
         </div>
