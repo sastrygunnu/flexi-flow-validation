@@ -34,7 +34,7 @@ export interface FlowRun {
 const FLOWS = ["us_onboarding", "eu_onboarding", "high_risk_kyc"];
 const USERS = ["usr_8f2a1", "usr_3b9c4", "usr_71ef0", "usr_22dde", "usr_9a4b3", "usr_55c2e"];
 
-const SAMPLES: Array<Omit<AuditLog, "id" | "timestamp" | "flow" | "userId">> = [
+const SAMPLES: Array<Omit<AuditLog, "id" | "timestamp" | "flow" | "userId" | "runId" | "stepIndex">> = [
   {
     stepKind: "phone",
     stepLabel: "Phone OTP",
