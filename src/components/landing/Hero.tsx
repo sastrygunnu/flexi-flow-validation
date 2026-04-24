@@ -20,16 +20,17 @@ export const Hero = () => {
             className="text-5xl md:text-7xl font-extrabold tracking-tight leading-[1.05] animate-fade-in-up"
             style={{ animationDelay: "0.1s" }}
           >
-            Stop integrating <br />
-            <span className="text-gradient">5 KYC vendors.</span>
+            Drag. Drop. <br />
+            <span className="text-gradient">Done.</span>
           </h1>
 
           <p
             className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed animate-fade-in-up"
             style={{ animationDelay: "0.2s" }}
           >
-            Build identity, address, phone, and fraud flows visually. Switch providers
-            in one click — without rewriting a single line of code.
+            Build KYC flows visually — drag phone, ID, address and fraud checks into a sequence.
+            Run the entire flow with <span className="text-foreground font-mono text-base">one line of code</span>.
+            Switch providers from your dashboard. Zero rewrites, zero deploys.
           </p>
 
           <div
