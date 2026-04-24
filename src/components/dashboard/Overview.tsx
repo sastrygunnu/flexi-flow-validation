@@ -9,6 +9,7 @@ import {
   DollarSign,
   Activity,
   ArrowRight,
+  Coins,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { generateMockLogs, groupLogsByRun } from "@/lib/audit-logs";
@@ -17,7 +18,7 @@ import { useAuth } from "@/hooks/useAuth";
 const RUNS = groupLogsByRun(generateMockLogs(24));
 
 interface OverviewProps {
-  onNavigate: (tab: "builder" | "simulator" | "flow-logs" | "logs") => void;
+  onNavigate: (tab: "builder" | "simulator" | "flow-logs" | "logs" | "costs") => void;
 }
 
 export function Overview({ onNavigate }: OverviewProps) {
