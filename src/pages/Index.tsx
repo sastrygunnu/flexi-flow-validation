@@ -1,4 +1,5 @@
 import { Hero } from "@/components/landing/Hero";
+import { Value } from "@/components/landing/Value";
 import { Problem } from "@/components/landing/Problem";
 import { HowItWorks } from "@/components/landing/HowItWorks";
 import { Infrastructure } from "@/components/landing/Infrastructure";
@@ -12,6 +13,7 @@ const Index = () => {
       <Navbar />
       <main className="flex-1">
         <Hero />
+        <Value />
         <Problem />
         <HowItWorks />
         <Infrastructure />

@@ -1,7 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import { ArrowRight, Sparkles } from "lucide-react";
-import heroImg from "@/assets/hero-network.jpg";
 
 export const Hero = () => {
   return (
@@ -58,20 +57,6 @@ export const Hero = () => {
           </div>
         </div>
 
-        <div
-          className="mt-20 relative max-w-5xl mx-auto animate-fade-in-up"
-          style={{ animationDelay: "0.5s" }}
-        >
-          <div className="absolute -inset-4 gradient-primary rounded-3xl blur-3xl opacity-20" />
-          <div className="relative rounded-2xl overflow-hidden border border-border shadow-elegant">
-            <img
-              src={heroImg}
-              alt="Validly orchestrates KYC, identity, address and fraud APIs through one unified validation network"
-              className="w-full h-auto"
-              loading="eager"
-            />
-          </div>
-        </div>
       </div>
     </section>
   );
