@@ -1,0 +1,322 @@
+import { useMemo, useState } from "react";
+import { ChevronDown, Search, Download, FileText, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { generateMockLogs, AuditLog, LogStatus } from "@/lib/audit-logs";
+import { toast } from "sonner";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+
+const ALL_LOGS = generateMockLogs(80);
+
+const statusMeta: Record<LogStatus, { label: string; className: string; Icon: typeof CheckCircle2 }> = {
+  success: {
+    label: "Success",
+    className: "bg-success/10 text-success border-success/30",
+    Icon: CheckCircle2,
+  },
+  failed: {
+    label: "Failed",
+    className: "bg-destructive/10 text-destructive border-destructive/30",
+    Icon: XCircle,
+  },
+  timeout: {
+    label: "Timeout",
+    className: "bg-accent/10 text-accent border-accent/30",
+    Icon: Clock,
+  },
+};
+
+function formatTime(iso: string) {
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function LogRow({ log }: { log: AuditLog }) {
+  const [open, setOpen] = useState(false);
+  const meta = statusMeta[log.status];
+
+  return (
+    <div className="border-b border-border last:border-b-0">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full grid grid-cols-[auto_1fr_140px_120px_140px_90px_80px_auto] items-center gap-3 px-4 py-3 hover:bg-secondary/40 transition-smooth text-left"
+      >
+        <ChevronDown
+          className={`h-3.5 w-3.5 text-muted-foreground transition-smooth ${open ? "rotate-180" : "-rotate-90"}`}
+        />
+        <div className="min-w-0">
+          <div className="text-sm font-semibold truncate">{log.stepLabel}</div>
+          <div className="text-xs text-muted-foreground font-mono truncate">{log.id}</div>
+        </div>
+        <div className="text-xs font-mono text-muted-foreground truncate">{log.flow}</div>
+        <div className="text-xs font-mono text-muted-foreground truncate">{log.userId}</div>
+        <div className="text-xs">{log.provider}</div>
+        <div className="text-xs font-mono text-muted-foreground">{log.durationMs}ms</div>
+        <div className="text-xs font-mono">${log.costUsd.toFixed(3)}</div>
+        <span
+          className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-1 rounded-md border ${meta.className}`}
+        >
+          <meta.Icon className="h-3 w-3" />
+          {meta.label}
+        </span>
+      </button>
+
+      {open && (
+        <div className="grid md:grid-cols-2 gap-3 px-4 pb-4 pt-1 bg-secondary/20 animate-fade-in-up">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-semibold">
+              Input params
+            </div>
+            <pre className="text-xs font-mono bg-background border border-border rounded-md p-3 overflow-x-auto">
+              {JSON.stringify(log.input, null, 2)}
+            </pre>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-semibold">
+              Output params
+            </div>
+            <pre className="text-xs font-mono bg-background border border-border rounded-md p-3 overflow-x-auto">
+              {JSON.stringify(log.output, null, 2)}
+            </pre>
+          </div>
+          <div className="md:col-span-2 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground pt-1">
+            <span>
+              Timestamp: <span className="text-foreground font-mono">{new Date(log.timestamp).toISOString()}</span>
+            </span>
+            <span>
+              Provider: <span className="text-foreground">{log.provider}</span>
+            </span>
+            <span>
+              Latency: <span className="text-foreground font-mono">{log.durationMs}ms</span>
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function AuditLogs() {
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [stepFilter, setStepFilter] = useState<string>("all");
+
+  const stepOptions = useMemo(
+    () => Array.from(new Set(ALL_LOGS.map((l) => l.stepLabel))),
+    [],
+  );
+
+  const filtered = useMemo(() => {
+    return ALL_LOGS.filter((l) => {
+      if (statusFilter !== "all" && l.status !== statusFilter) return false;
+      if (stepFilter !== "all" && l.stepLabel !== stepFilter) return false;
+      if (query) {
+        const q = query.toLowerCase();
+        const hay = `${l.id} ${l.flow} ${l.userId} ${l.provider} ${l.stepLabel}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [query, statusFilter, stepFilter]);
+
+  const exportCsv = () => {
+    const headers = [
+      "id",
+      "timestamp",
+      "flow",
+      "userId",
+      "step",
+      "provider",
+      "status",
+      "duration_ms",
+      "cost_usd",
+      "input",
+      "output",
+    ];
+    const escape = (v: unknown) => `"${String(v).replace(/"/g, '""')}"`;
+    const rows = filtered.map((l) =>
+      [
+        l.id,
+        l.timestamp,
+        l.flow,
+        l.userId,
+        l.stepLabel,
+        l.provider,
+        l.status,
+        l.durationMs,
+        l.costUsd,
+        JSON.stringify(l.input),
+        JSON.stringify(l.output),
+      ]
+        .map(escape)
+        .join(","),
+    );
+    const csv = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `audit-logs-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${filtered.length} logs to CSV`);
+  };
+
+  const exportPdf = () => {
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(14);
+    doc.text("Validly — Audit Logs", 14, 15);
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    doc.text(
+      `Generated ${new Date().toLocaleString()} · ${filtered.length} entries`,
+      14,
+      21,
+    );
+
+    autoTable(doc, {
+      startY: 26,
+      head: [["Time", "Flow", "User", "Step", "Provider", "Status", "ms", "Cost"]],
+      body: filtered.map((l) => [
+        formatTime(l.timestamp),
+        l.flow,
+        l.userId,
+        l.stepLabel,
+        l.provider,
+        l.status,
+        String(l.durationMs),
+        `$${l.costUsd.toFixed(3)}`,
+      ]),
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [88, 80, 236] },
+    });
+
+    doc.save(`audit-logs-${Date.now()}.pdf`);
+    toast.success(`Exported ${filtered.length} logs to PDF`);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="gradient-card border border-border rounded-xl p-4 flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by id, user, flow, provider…"
+            className="pl-9"
+          />
+        </div>
+
+        <Select value={stepFilter} onValueChange={setStepFilter}>
+          <SelectTrigger className="w-[170px]">
+            <SelectValue placeholder="Step" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All steps</SelectItem>
+            {stepOptions.map((s) => (
+              <SelectItem key={s} value={s}>
+                {s}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[140px]">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="success">Success</SelectItem>
+            <SelectItem value="failed">Failed</SelectItem>
+            <SelectItem value="timeout">Timeout</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={exportCsv}>
+            <Download className="h-3.5 w-3.5" />
+            CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={exportPdf}>
+            <FileText className="h-3.5 w-3.5" />
+            PDF
+          </Button>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: "Total calls", value: filtered.length },
+          {
+            label: "Success rate",
+            value:
+              filtered.length === 0
+                ? "—"
+                : `${Math.round(
+                    (filtered.filter((l) => l.status === "success").length / filtered.length) * 100,
+                  )}%`,
+          },
+          {
+            label: "Avg latency",
+            value:
+              filtered.length === 0
+                ? "—"
+                : `${Math.round(filtered.reduce((s, l) => s + l.durationMs, 0) / filtered.length)}ms`,
+          },
+          {
+            label: "Total cost",
+            value: `$${filtered.reduce((s, l) => s + l.costUsd, 0).toFixed(2)}`,
+          },
+        ].map((s) => (
+          <div key={s.label} className="gradient-card border border-border rounded-xl p-4">
+            <div className="text-xs text-muted-foreground uppercase tracking-wider">{s.label}</div>
+            <div className="text-2xl font-bold mt-1">{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div className="gradient-card border border-border rounded-xl overflow-hidden">
+        <div className="grid grid-cols-[auto_1fr_140px_120px_140px_90px_80px_auto] items-center gap-3 px-4 py-2.5 border-b border-border bg-secondary/30 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+          <span className="w-3.5" />
+          <span>Step / ID</span>
+          <span>Flow</span>
+          <span>User</span>
+          <span>Provider</span>
+          <span>Latency</span>
+          <span>Cost</span>
+          <span>Status</span>
+        </div>
+        {filtered.length === 0 ? (
+          <div className="p-12 text-center text-sm text-muted-foreground">
+            No logs match your filters.
+          </div>
+        ) : (
+          <div className="max-h-[640px] overflow-y-auto">
+            {filtered.map((log) => (
+              <LogRow key={log.id} log={log} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
