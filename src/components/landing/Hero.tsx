@@ -51,8 +51,8 @@ export const Hero = () => {
             style={{ animationDelay: "0.4s" }}
           >
             <span>✓ No vendor lock-in</span>
-            <span>✓ Pay per validation</span>
-            <span>✓ SOC 2 + GDPR ready</span>
+            <span>✓ Pay per validation (USDC)</span>
+            <span>✓ Arc settlement layer</span>
             <span>✓ &lt; 5 min integration</span>
           </div>
         </div>
