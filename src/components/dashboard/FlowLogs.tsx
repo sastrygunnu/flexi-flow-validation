@@ -125,6 +125,70 @@ function StepDetail({ step }: { step: AuditLog }) {
               {JSON.stringify(step.output, null, 2)}
             </pre>
           </div>
+          <div className="md:col-span-2">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-semibold flex items-center gap-2">
+              Payment receipt
+              <span
+                className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+                  step.payment.status === "paid"
+                    ? "bg-success/10 text-success border-success/30"
+                    : step.payment.status === "pending"
+                    ? "bg-accent/10 text-accent border-accent/30"
+                    : step.payment.status === "skipped"
+                    ? "bg-muted text-muted-foreground border-border"
+                    : "bg-destructive/10 text-destructive border-destructive/30"
+                }`}
+              >
+                ◎ {step.payment.status}
+              </span>
+              <span className="text-[10px] text-muted-foreground normal-case tracking-normal">
+                {step.payment.rail === "circle_arc" ? "Circle Arc · Nanopayment" : "x402 settlement"}
+              </span>
+            </div>
+            <div className="bg-background border border-border rounded-md p-3 grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs font-mono">
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Amount</span>
+                <span>{step.payment.amountUsdc.toFixed(6)} USDC</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Gas</span>
+                <span>{step.payment.gasUsdc.toFixed(6)} USDC</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Finality</span>
+                <span>{step.payment.settlementNs} ns</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Settled at</span>
+                <span>{new Date(step.payment.settledAt).toISOString()}</span>
+              </div>
+              <div className="flex justify-between gap-2 sm:col-span-2">
+                <span className="text-muted-foreground shrink-0">Payer</span>
+                <span className="truncate" title={step.payment.payerWallet}>{step.payment.payerWallet}</span>
+              </div>
+              <div className="flex justify-between gap-2 sm:col-span-2">
+                <span className="text-muted-foreground shrink-0">Payee ({step.provider})</span>
+                <span className="truncate" title={step.payment.payeeWallet}>{step.payment.payeeWallet}</span>
+              </div>
+              <div className="flex justify-between gap-2 sm:col-span-2">
+                <span className="text-muted-foreground shrink-0">Arc tx</span>
+                <span className="truncate" title={step.payment.arcTxHash}>{step.payment.arcTxHash}</span>
+              </div>
+              <div className="flex justify-between gap-2 sm:col-span-2">
+                <span className="text-muted-foreground shrink-0">Nanopayment</span>
+                <span className="truncate">{step.payment.nanopaymentId}</span>
+              </div>
+              <div className="flex justify-between gap-2 sm:col-span-2">
+                <span className="text-muted-foreground shrink-0">Invoice</span>
+                <span className="truncate">{step.payment.invoiceId}</span>
+              </div>
+              {step.payment.reason && (
+                <div className="sm:col-span-2 text-muted-foreground italic normal-case">
+                  {step.payment.reason}
+                </div>
+              )}
+            </div>
+          </div>
           <div className="md:col-span-2 text-[10px] font-mono text-muted-foreground">
             {step.id} · {new Date(step.timestamp).toISOString()}
           </div>
