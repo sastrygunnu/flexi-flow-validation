@@ -15,6 +15,11 @@ export interface AuditLog {
   status: LogStatus;
   durationMs: number;
   costUsd: number;
+  // Circle Arc / Nanopayment settlement metadata
+  costUsdc: number; // USDC settled on Arc (== costUsd at 1:1 peg, kept separate for clarity)
+  arcTxHash: string; // Arc L1 settlement tx hash
+  arcSettlementNs: number; // settlement latency in nanoseconds (Arc sub-second finality)
+  nanopaymentId: string; // Circle Nanopayment id
   input: Record<string, unknown>;
   output: Record<string, unknown>;
 }
@@ -27,14 +32,24 @@ export interface FlowRun {
   endedAt: string;
   totalDurationMs: number;
   totalCostUsd: number;
-  status: LogStatus; // worst status across steps
+  totalCostUsdc: number; // total USDC settled on Arc for this flow
+  avgArcSettlementNs: number; // average Arc settlement latency in nanoseconds
+  nanopaymentCount: number; // number of Circle Nanopayments emitted
+  status: LogStatus;
   steps: AuditLog[];
+}
+
+function randomHex(len: number) {
+  let s = "0x";
+  const chars = "0123456789abcdef";
+  for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * 16)];
+  return s;
 }
 
 const FLOWS = ["us_onboarding", "eu_onboarding", "high_risk_kyc"];
 const USERS = ["usr_8f2a1", "usr_3b9c4", "usr_71ef0", "usr_22dde", "usr_9a4b3", "usr_55c2e"];
 
-const SAMPLES: Array<Omit<AuditLog, "id" | "timestamp" | "flow" | "userId" | "runId" | "stepIndex">> = [
+const SAMPLES: Array<Omit<AuditLog, "id" | "timestamp" | "flow" | "userId" | "runId" | "stepIndex" | "costUsdc" | "arcTxHash" | "arcSettlementNs" | "nanopaymentId">> = [
   {
     stepKind: "phone",
     stepLabel: "Phone OTP",
@@ -165,6 +180,8 @@ export function generateMockLogs(runCount = 18): AuditLog[] {
       const status: LogStatus =
         i === failAt ? (Math.random() < 0.5 ? "failed" : "timeout") : sample.status;
       cursor += sample.durationMs + Math.round(Math.random() * 200);
+      // Circle Arc finality: typically 200ns – 900ns sub-second nanopayment settlement
+      const arcSettlementNs = 200 + Math.floor(Math.random() * 700);
       logs.push({
         ...sample,
         status,
@@ -174,6 +191,10 @@ export function generateMockLogs(runCount = 18): AuditLog[] {
         timestamp: new Date(cursor).toISOString(),
         flow,
         userId,
+        costUsdc: sample.costUsd, // 1:1 USDC peg
+        arcTxHash: randomHex(64),
+        arcSettlementNs,
+        nanopaymentId: `np_${randomHex(16).slice(2)}`,
       });
       if (i === failAt) break; // flow halts on failure
     }
@@ -196,6 +217,10 @@ export function groupLogsByRun(logs: AuditLog[]): FlowRun[] {
     const last = sorted[sorted.length - 1];
     const totalDurationMs = sorted.reduce((sum, s) => sum + s.durationMs, 0);
     const totalCostUsd = sorted.reduce((sum, s) => sum + s.costUsd, 0);
+    const totalCostUsdc = sorted.reduce((sum, s) => sum + s.costUsdc, 0);
+    const avgArcSettlementNs = Math.round(
+      sorted.reduce((sum, s) => sum + s.arcSettlementNs, 0) / sorted.length,
+    );
     const status: LogStatus = sorted.some((s) => s.status === "timeout")
       ? "timeout"
       : sorted.some((s) => s.status === "failed")
@@ -209,6 +234,9 @@ export function groupLogsByRun(logs: AuditLog[]): FlowRun[] {
       endedAt: last.timestamp,
       totalDurationMs,
       totalCostUsd,
+      totalCostUsdc,
+      avgArcSettlementNs,
+      nanopaymentCount: sorted.length,
       status,
       steps: sorted,
     });

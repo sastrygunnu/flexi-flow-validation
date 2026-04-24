@@ -9,6 +9,7 @@ import {
   DollarSign,
   Activity,
   ArrowRight,
+  Coins,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { generateMockLogs, groupLogsByRun } from "@/lib/audit-logs";
@@ -17,7 +18,7 @@ import { useAuth } from "@/hooks/useAuth";
 const RUNS = groupLogsByRun(generateMockLogs(24));
 
 interface OverviewProps {
-  onNavigate: (tab: "builder" | "simulator" | "flow-logs" | "logs") => void;
+  onNavigate: (tab: "builder" | "simulator" | "flow-logs" | "logs" | "costs") => void;
 }
 
 export function Overview({ onNavigate }: OverviewProps) {
@@ -69,6 +70,12 @@ export function Overview({ onNavigate }: OverviewProps) {
       title: "Audit Logs",
       desc: "Drill into per-step API calls and export to CSV/PDF.",
       Icon: ScrollText,
+    },
+    {
+      key: "costs" as const,
+      title: "Cost Analytics",
+      desc: "USDC spend per flow, step & provider — settled on Arc.",
+      Icon: Coins,
     },
   ];
 

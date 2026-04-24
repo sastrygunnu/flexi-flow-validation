@@ -5,9 +5,10 @@ import { AuditLogs } from "@/components/dashboard/AuditLogs";
 import { FlowLogs } from "@/components/dashboard/FlowLogs";
 import { Simulator } from "@/components/dashboard/Simulator";
 import { Overview } from "@/components/dashboard/Overview";
+import { CostAnalytics } from "@/components/dashboard/CostAnalytics";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-type TabKey = "overview" | "builder" | "simulator" | "flow-logs" | "logs";
+type TabKey = "overview" | "builder" | "simulator" | "flow-logs" | "logs" | "costs";
 
 const Dashboard = () => {
   const [tab, setTab] = useState<TabKey>("overview");
@@ -37,6 +38,7 @@ const Dashboard = () => {
               <TabsTrigger value="simulator">Simulator</TabsTrigger>
               <TabsTrigger value="flow-logs">Flow Logs</TabsTrigger>
               <TabsTrigger value="logs">Audit Logs</TabsTrigger>
+              <TabsTrigger value="costs">Cost Analytics</TabsTrigger>
             </TabsList>
 
             <TabsContent value="overview">
@@ -57,6 +59,10 @@ const Dashboard = () => {
 
             <TabsContent value="logs">
               <AuditLogs />
+            </TabsContent>
+
+            <TabsContent value="costs">
+              <CostAnalytics />
             </TabsContent>
           </Tabs>
         </div>
