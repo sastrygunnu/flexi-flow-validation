@@ -4,6 +4,8 @@ export type LogStatus = "success" | "failed" | "timeout";
 
 export interface AuditLog {
   id: string;
+  runId: string; // groups steps belonging to the same flow execution
+  stepIndex: number; // order within the flow run
   timestamp: string; // ISO
   flow: string;
   userId: string;
@@ -15,6 +17,18 @@ export interface AuditLog {
   costUsd: number;
   input: Record<string, unknown>;
   output: Record<string, unknown>;
+}
+
+export interface FlowRun {
+  runId: string;
+  flow: string;
+  userId: string;
+  startedAt: string;
+  endedAt: string;
+  totalDurationMs: number;
+  totalCostUsd: number;
+  status: LogStatus; // worst status across steps
+  steps: AuditLog[];
 }
 
 const FLOWS = ["us_onboarding", "eu_onboarding", "high_risk_kyc"];
@@ -122,20 +136,84 @@ function rand<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-export function generateMockLogs(count = 60): AuditLog[] {
+const FLOW_TEMPLATES: Record<string, StepKind[]> = {
+  us_onboarding: ["email", "phone", "identity", "address", "fraud"],
+  eu_onboarding: ["email", "phone", "identity", "fraud"],
+  high_risk_kyc: ["email", "phone", "identity", "address", "bank", "fraud"],
+};
+
+function sampleForStep(kind: StepKind) {
+  const match = SAMPLES.find((s) => s.stepKind === kind);
+  return match ?? SAMPLES[0];
+}
+
+export function generateMockLogs(runCount = 18): AuditLog[] {
   const now = Date.now();
   const logs: AuditLog[] = [];
-  for (let i = 0; i < count; i++) {
-    const sample = SAMPLES[i % SAMPLES.length];
-    logs.push({
-      ...sample,
-      id: `log_${(now - i * 1000).toString(36)}_${i}`,
-      timestamp: new Date(now - i * 1000 * 60 * (1 + Math.random() * 4)).toISOString(),
-      flow: rand(FLOWS),
-      userId: rand(USERS),
-    });
+  for (let r = 0; r < runCount; r++) {
+    const flow = rand(Object.keys(FLOW_TEMPLATES));
+    const userId = rand(USERS);
+    const runId = `run_${(now - r * 60_000).toString(36)}_${r}`;
+    const steps = FLOW_TEMPLATES[flow];
+    const runStart = now - r * 1000 * 60 * (2 + Math.random() * 6);
+    let cursor = runStart;
+    // Random chance a run fails partway through
+    const failAt = Math.random() < 0.25 ? Math.floor(Math.random() * steps.length) : -1;
+
+    for (let i = 0; i < steps.length; i++) {
+      const sample = sampleForStep(steps[i]);
+      const status: LogStatus =
+        i === failAt ? (Math.random() < 0.5 ? "failed" : "timeout") : sample.status;
+      cursor += sample.durationMs + Math.round(Math.random() * 200);
+      logs.push({
+        ...sample,
+        status,
+        id: `log_${runId}_${i}`,
+        runId,
+        stepIndex: i,
+        timestamp: new Date(cursor).toISOString(),
+        flow,
+        userId,
+      });
+      if (i === failAt) break; // flow halts on failure
+    }
   }
   return logs.sort(
     (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+  );
+}
+
+export function groupLogsByRun(logs: AuditLog[]): FlowRun[] {
+  const byRun = new Map<string, AuditLog[]>();
+  for (const log of logs) {
+    if (!byRun.has(log.runId)) byRun.set(log.runId, []);
+    byRun.get(log.runId)!.push(log);
+  }
+  const runs: FlowRun[] = [];
+  for (const [runId, entries] of byRun) {
+    const sorted = [...entries].sort((a, b) => a.stepIndex - b.stepIndex);
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const totalDurationMs = sorted.reduce((sum, s) => sum + s.durationMs, 0);
+    const totalCostUsd = sorted.reduce((sum, s) => sum + s.costUsd, 0);
+    const status: LogStatus = sorted.some((s) => s.status === "timeout")
+      ? "timeout"
+      : sorted.some((s) => s.status === "failed")
+      ? "failed"
+      : "success";
+    runs.push({
+      runId,
+      flow: first.flow,
+      userId: first.userId,
+      startedAt: first.timestamp,
+      endedAt: last.timestamp,
+      totalDurationMs,
+      totalCostUsd,
+      status,
+      steps: sorted,
+    });
+  }
+  return runs.sort(
+    (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
   );
 }
