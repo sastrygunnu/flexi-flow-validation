@@ -113,6 +113,14 @@ export function ScenarioRunner() {
   const [error, setError] = useState<string | null>(null);
   const cancelRef = useRef(false);
   const lastToastRunIdRef = useRef<string | null>(null);
+  const simulateTimerRef = useRef<number | null>(null);
+
+  const stopSimulation = () => {
+    if (simulateTimerRef.current !== null) {
+      window.clearTimeout(simulateTimerRef.current);
+      simulateTimerRef.current = null;
+    }
+  };
 
   const flowsQuery = useQuery({
     queryKey: ["flows"],
@@ -212,8 +220,34 @@ export function ScenarioRunner() {
       };
     });
 
+  const startSimulation = (cfg: FlowStepConfig[]) => {
+    stopSimulation();
+    if (typeof window === "undefined") return;
+    const base = initSteps(cfg);
+    let index = 0;
+    let phase: "calling" | "settling" = "calling";
+
+    const tick = () => {
+      if (cancelRef.current) return;
+      const next = base.map((s) => {
+        if (s.index < index) return { ...s, status: "settling" as const };
+        if (s.index === index) return { ...s, status: phase as RunStepStatus };
+        return s;
+      });
+      setSteps(next);
+
+      const nextPhase = phase === "calling" ? "settling" : "calling";
+      if (phase === "settling") index = (index + 1) % Math.max(1, base.length);
+      phase = nextPhase;
+      simulateTimerRef.current = window.setTimeout(tick, phase === "calling" ? 650 : 350);
+    };
+
+    tick();
+  };
+
   const reset = () => {
     cancelRef.current = true;
+    stopSimulation();
     setSteps([]);
     setRunId(null);
     setRunning(false);
@@ -247,6 +281,7 @@ export function ScenarioRunner() {
     setRunId(null);
 
     try {
+      if (serverlessSameOrigin) startSimulation(flowSteps);
       const stepCount = flowSteps.length;
       const stepOutcomes = Array.from({ length: stepCount }, () => "success" as const);
       if (scenarioPreset === "fail_step" || scenarioPreset === "timeout_step") {
@@ -257,6 +292,7 @@ export function ScenarioRunner() {
         flowId: selectedFlow.id,
         stepOutcomes,
       });
+      stopSimulation();
       setRunId(started.runId);
       toast.success("Run started", { description: started.runId });
 
@@ -298,6 +334,7 @@ export function ScenarioRunner() {
         qc.invalidateQueries({ queryKey: ["logs", "analytics"] }),
       ]);
     } catch (e) {
+      stopSimulation();
       setRunning(false);
       setPollingEnabled(false);
       const message = e instanceof Error ? e.message : "Unknown error";
