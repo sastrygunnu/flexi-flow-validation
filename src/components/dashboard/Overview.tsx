@@ -10,6 +10,7 @@ import {
   Activity,
   ArrowRight,
   Coins,
+  Rocket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { generateMockLogs, groupLogsByRun } from "@/lib/audit-logs";
@@ -18,7 +19,7 @@ import { useAuth } from "@/hooks/useAuth";
 const RUNS = groupLogsByRun(generateMockLogs(24));
 
 interface OverviewProps {
-  onNavigate: (tab: "builder" | "simulator" | "flow-logs" | "logs" | "costs") => void;
+  onNavigate: (tab: "builder" | "simulator" | "scenario" | "flow-logs" | "logs" | "costs") => void;
 }
 
 export function Overview({ onNavigate }: OverviewProps) {
@@ -58,6 +59,12 @@ export function Overview({ onNavigate }: OverviewProps) {
       title: "Simulator",
       desc: "Test pass / fail / timeout scenarios — zero provider cost.",
       Icon: FlaskConical,
+    },
+    {
+      key: "scenario" as const,
+      title: "Run a Scenario",
+      desc: "Trigger end-to-end flows and watch nanopayments settle live on Arc.",
+      Icon: Rocket,
     },
     {
       key: "flow-logs" as const,
