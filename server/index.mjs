@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readJson, writeJson } from "./store.mjs";
+import { readJson, writeJson, storeInfo } from "./store.mjs";
 import { getProvider, getStep } from "./step-library.mjs";
 // Mock functions removed - now using only real Circle payment data
 import { getArcTestnetKind, getX402Transfer, settleX402Payment, getGatewayBalance } from "./payments/circle-gateway.mjs";
@@ -132,22 +132,6 @@ async function loadDb() {
   const flows = await readJson("flows.json", []);
   const runs = await readJson("runs.json", []);
   const logs = await readJson("logs.json", []);
-  if (flows.length === 0) {
-    const now = new Date().toISOString();
-    flows.unshift({
-      id: id("flow"),
-      name: "us_onboarding",
-      steps: [
-        { type: "phone", provider: "twilio" },
-        { type: "identity", provider: "persona" },
-        { type: "address", provider: "google" },
-        { type: "fraud", provider: "sift" },
-      ],
-      createdAt: now,
-      updatedAt: now,
-    });
-    await saveDb({ flows, runs, logs });
-  }
   return { flows, runs, logs };
 }
 
@@ -778,6 +762,19 @@ export async function handle(req, res) {
     return;
   }
 
+  if (pathname === "/api/debug/build" && req.method === "GET") {
+    json(res, 200, {
+      ok: true,
+      vercel: Boolean(process.env.VERCEL),
+      node: process.version,
+      commit: process.env.VERCEL_GIT_COMMIT_SHA || null,
+      deploymentId: process.env.VERCEL_DEPLOYMENT_ID || null,
+      region: process.env.VERCEL_REGION || null,
+      store: storeInfo(),
+    });
+    return;
+  }
+
   if (pathname === "/api" && req.method === "GET") {
     json(res, 200, { ok: true, hint: "Use /api/health" });
     return;
@@ -1082,8 +1079,11 @@ export async function handle(req, res) {
     const flowId = pathname.split("/").pop();
     const db = await loadDb();
     const flow = db.flows.find((f) => f.id === flowId);
-    if (!flow) return notFound(res);
-    json(res, 200, { flow });
+    if (!flow) {
+      json(res, 200, { flow: null, ok: false, error: { message: "Unknown flowId" } });
+      return;
+    }
+    json(res, 200, { flow, ok: true });
     return;
   }
 
@@ -1126,8 +1126,11 @@ export async function handle(req, res) {
     const runId = pathname.split("/").pop();
     const db = await loadDb();
     const run = db.runs.find((r) => r.runId === runId);
-    if (!run) return notFound(res);
-    json(res, 200, { run: hydrateRunFromLogs(run, db.logs) });
+    if (!run) {
+      json(res, 200, { run: null, ok: false, error: { message: "Unknown runId" } });
+      return;
+    }
+    json(res, 200, { run: hydrateRunFromLogs(run, db.logs), ok: true });
     return;
   }
 
@@ -1217,7 +1220,7 @@ export async function handle(req, res) {
     const forcedStatus = normalizeForcedStatus(body?.forceStatus);
     const stepOutcomes = Array.isArray(body?.stepOutcomes) ? body.stepOutcomes : null;
     const continueOnFailure = Boolean(body?.continueOnFailure);
-    const asyncMode = body?.async !== false;
+    const asyncMode = process.env.VERCEL ? false : body?.async !== false;
 
     const runId = id("run");
     const startedAt = new Date().toISOString();

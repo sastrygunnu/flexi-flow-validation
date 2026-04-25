@@ -1,5 +1,6 @@
 import type { AuditLog, FlowRun } from "@/lib/audit-logs";
 import type { StepKind } from "@/lib/validation-steps";
+import { cacheGet, cacheSet } from "@/lib/server-cache";
 
 export type FlowStepConfig = {
   type: StepKind;
@@ -64,19 +65,32 @@ const API_URL = import.meta.env.VITE_API_URL ||
   (import.meta.env.DEV ? "http://localhost:8787" : "");
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      ...(init?.headers || {}),
-    },
-  });
+  try {
+    const res = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: {
+        "content-type": "application/json",
+        ...(init?.headers || {}),
+      },
+    });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`API ${res.status}: ${text || res.statusText}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`API ${res.status}: ${text || res.statusText}`);
+    }
+    const data = (await res.json()) as T;
+
+    const method = String(init?.method || "GET").toUpperCase();
+    if (method === "GET") cacheSet(path, data);
+    return data;
+  } catch (e) {
+    const method = String(init?.method || "GET").toUpperCase();
+    if (method === "GET") {
+      const cached = cacheGet<T>(path);
+      if (cached !== null) return cached;
+    }
+    throw e;
   }
-  return res.json() as Promise<T>;
 }
 
 export const api = {

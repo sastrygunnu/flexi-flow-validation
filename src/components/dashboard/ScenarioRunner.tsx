@@ -101,6 +101,7 @@ const paymentBadge: Record<PaymentStatus, string> = {
 
 export function ScenarioRunner() {
   const qc = useQueryClient();
+  const serverlessSameOrigin = import.meta.env.PROD && !import.meta.env.VITE_API_URL;
   const [selectedFlowId, setSelectedFlowId] = useState<string>("");
   const [scenarioPreset, setScenarioPreset] =
     useState<ScenarioPreset>("all_success");
@@ -136,7 +137,7 @@ export function ScenarioRunner() {
       if (!runId) return null;
       return (await api.runs.get(runId)).run;
     },
-    enabled: Boolean(runId),
+    enabled: Boolean(runId) && pollingEnabled,
     refetchInterval: (query) => {
       const run = query.state.data as { status?: string } | null | undefined;
       const shouldPoll =
@@ -163,7 +164,7 @@ export function ScenarioRunner() {
         })
       ).logs;
     },
-    enabled: Boolean(runId),
+    enabled: Boolean(runId) && pollingEnabled,
     refetchInterval: () => (shouldPoll ? 750 : false),
   });
 
@@ -178,7 +179,7 @@ export function ScenarioRunner() {
           user: { phone: "+14155550182", email: "alex@startup.io" },
           stepOutcomes: input.stepOutcomes,
           continueOnFailure: false,
-          async: true,
+          async: !serverlessSameOrigin,
         })
       ).run;
     },
@@ -241,7 +242,7 @@ export function ScenarioRunner() {
     }
 
     setRunning(true);
-    setPollingEnabled(true);
+    setPollingEnabled(!serverlessSameOrigin);
     setSteps(initSteps(flowSteps));
     setRunId(null);
 
@@ -258,6 +259,39 @@ export function ScenarioRunner() {
       });
       setRunId(started.runId);
       toast.success("Run started", { description: started.runId });
+
+      if (serverlessSameOrigin) {
+        setPollingEnabled(false);
+        setRunning(false);
+        const logs = Array.isArray(started.steps) ? started.steps : [];
+        const base = initSteps(flowSteps);
+        const sorted = [...logs].sort((a, b) => (a.stepIndex ?? 0) - (b.stepIndex ?? 0));
+        const mapped = base.map((s) => {
+          const log = sorted.find((l) => l.stepIndex === s.index);
+          if (!log) return s;
+          return {
+            ...s,
+            status: log.status,
+            paymentStatus: log.payment?.status,
+            durationMs: log.durationMs,
+            costUsdc: log.costUsdc,
+            requestedAmountUsdc: log.payment?.requestedAmountUsdc ?? null,
+            chargedAmountUsdc: log.payment?.amountUsdc ?? null,
+            arcTxHash: log.arcTxHash,
+            gatewayTransferId: log.payment?.gatewayTransferId || null,
+            gatewayTransferStatus: log.payment?.gatewayTransferStatus || null,
+            gatewayNetwork: log.payment?.gatewayNetwork || null,
+            x402Asset: log.payment?.x402Asset || null,
+            payerWallet: log.payment?.payerWallet || null,
+            payeeWallet: log.payment?.payeeWallet || null,
+            nanopaymentId: log.payment?.nanopaymentId || null,
+            settlementNs: log.payment?.settlementNs ?? null,
+            rail: log.payment?.rail,
+          } satisfies RunStep;
+        });
+        setSteps(mapped);
+      }
+
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["runs"] }),
         qc.invalidateQueries({ queryKey: ["logs"] }),
