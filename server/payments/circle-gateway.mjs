@@ -102,28 +102,27 @@ export async function getX402Transfer(id) {
  * @returns {Promise<number>} Balance in USDC (decimal, not atomic)
  */
 export async function getGatewayBalance(walletAddress) {
-  const rpcUrl = process.env.ARC_RPC_URL || 'https://rpc.testnet.arc.network';
-  const gatewayContract = '0x0077777d7EBA4688BDeF3E311b846F25870A19B9';
+  const rpcUrl = process.env.ARC_RPC_URL || "https://rpc.testnet.arc.network";
+  const usdcContract = "0x3600000000000000000000000000000000000000";
 
-  // ERC-20 balanceOf(address) function selector
-  const BALANCE_OF_SELECTOR = '0x70a08231';
-  const paddedAddress = walletAddress.replace('0x', '').toLowerCase().padStart(64, '0');
+  const BALANCE_OF_SELECTOR = "0x70a08231";
+  const paddedAddress = walletAddress.replace("0x", "").toLowerCase().padStart(64, "0");
 
   const response = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'eth_call',
+      jsonrpc: "2.0",
+      method: "eth_call",
       params: [
         {
-          to: gatewayContract,
-          data: BALANCE_OF_SELECTOR + paddedAddress
+          to: usdcContract,
+          data: BALANCE_OF_SELECTOR + paddedAddress,
         },
-        'latest'
+        "latest",
       ],
-      id: 1
-    })
+      id: 1,
+    }),
   });
 
   const data = await response.json();
@@ -132,8 +131,7 @@ export async function getGatewayBalance(walletAddress) {
   }
 
   const balanceHex = data.result;
-  const balanceAtomic = parseInt(balanceHex, 16);
-  const balanceUsdc = balanceAtomic / 1_000_000; // USDC has 6 decimals
-
+  const balanceAtomic = BigInt(balanceHex);
+  const balanceUsdc = Number(balanceAtomic) / 1_000_000;
   return balanceUsdc;
 }

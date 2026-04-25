@@ -59,6 +59,17 @@ export type X402TransferResponse = {
   error?: { message: string };
 };
 
+export type GatewayBalance = {
+  ok: boolean;
+  message?: string;
+  error?: string;
+  address?: string;
+  balanceUsdc: number;
+  balanceAtomic?: number;
+  network?: string;
+  gatewayContract?: string;
+};
+
 // In production, use relative URLs (same domain as frontend)
 // In development, use localhost:8787
 const API_URL = import.meta.env.VITE_API_URL ||
@@ -102,6 +113,9 @@ export const api = {
         body: JSON.stringify(input || {}),
       }),
     getTx: (id: string) => request<CircleTransactionResponse>(`/api/circle/tx/${id}`),
+  },
+  gateway: {
+    balance: () => request<GatewayBalance>("/api/gateway/balance"),
   },
   flows: {
     list: () => request<{ flows: Flow[] }>("/api/flows"),

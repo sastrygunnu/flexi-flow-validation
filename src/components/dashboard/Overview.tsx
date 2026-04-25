@@ -46,6 +46,12 @@ export function Overview({ onNavigate }: OverviewProps) {
     refetchInterval: 30_000,
   });
 
+  const gatewayQuery = useQuery({
+    queryKey: ["gateway-balance"],
+    queryFn: async () => api.gateway.balance(),
+    refetchInterval: 30_000,
+  });
+
   const circleTxQuery = useQuery({
     queryKey: ["circle-tx", lastCircleTxId],
     queryFn: async () => {
@@ -106,7 +112,7 @@ export function Overview({ onNavigate }: OverviewProps) {
   const displayName = "there";
   const recent = runs.slice(0, 5);
   const payerAddress = circleQuery.data?.payer?.address || null;
-  const payerUsdc = circleQuery.data?.payerBalances?.usdc?.amount || null;
+  const gatewayUsdc = gatewayQuery.data?.ok ? gatewayQuery.data.balanceUsdc : null;
   const latestCircleTx = circleTxQuery.data?.transaction || null;
   const circleTxUrl = latestCircleTx?.txHash ? arcTxUrl(latestCircleTx.txHash) : null;
 
@@ -190,18 +196,18 @@ export function Overview({ onNavigate }: OverviewProps) {
           Icon={Coins}
           label="Payer balance"
           value={
-            payerUsdc && Number.isFinite(Number(payerUsdc))
-              ? `${Number(payerUsdc).toFixed(2)} USDC`
+            typeof gatewayUsdc === "number" && Number.isFinite(gatewayUsdc)
+              ? `${gatewayUsdc.toFixed(2)} USDC`
               : "—"
           }
           hint={
-            circleQuery.isError
-              ? "Circle status error"
+            gatewayQuery.isError
+              ? "Gateway balance error"
               : payerAddress
-                ? `Circle payer ${shortAddress(payerAddress)}`
-                : circleQuery.isLoading
-                  ? "Checking Circle config…"
-                  : "Circle not configured"
+                ? `Gateway payer ${shortAddress(payerAddress)}`
+                : gatewayQuery.isLoading
+                  ? "Checking Gateway balance…"
+                  : "Gateway not configured"
           }
         />
       </div>
