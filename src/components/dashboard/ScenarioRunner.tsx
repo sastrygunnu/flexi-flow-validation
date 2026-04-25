@@ -102,6 +102,7 @@ const paymentBadge: Record<PaymentStatus, string> = {
 export function ScenarioRunner() {
   const qc = useQueryClient();
   const serverlessSameOrigin = import.meta.env.PROD && !import.meta.env.VITE_API_URL;
+  const simulateDuringCreate = import.meta.env.PROD;
   const [selectedFlowId, setSelectedFlowId] = useState<string>("");
   const [scenarioPreset, setScenarioPreset] =
     useState<ScenarioPreset>("all_success");
@@ -281,7 +282,9 @@ export function ScenarioRunner() {
     setRunId(null);
 
     try {
-      if (serverlessSameOrigin) startSimulation(flowSteps);
+      // On serverless (and sometimes cross-origin backends), starting a run can block until completion.
+      // Simulate step-by-step progress while we await the server response.
+      if (simulateDuringCreate) startSimulation(flowSteps);
       const stepCount = flowSteps.length;
       const stepOutcomes = Array.from({ length: stepCount }, () => "success" as const);
       if (scenarioPreset === "fail_step" || scenarioPreset === "timeout_step") {
