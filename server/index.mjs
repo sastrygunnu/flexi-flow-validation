@@ -1290,6 +1290,41 @@ async function handle(req, res) {
     return;
   }
 
+  // Serve static files from dist/ folder (production build)
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const distPath = path.join(__dirname, "../dist");
+
+  // Try to serve static file
+  const filePath = pathname === "/" ? path.join(distPath, "index.html") : path.join(distPath, pathname);
+
+  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+    const ext = path.extname(filePath);
+    const contentType = {
+      ".html": "text/html",
+      ".js": "text/javascript",
+      ".css": "text/css",
+      ".json": "application/json",
+      ".png": "image/png",
+      ".jpg": "image/jpg",
+      ".svg": "image/svg+xml",
+      ".ico": "image/x-icon"
+    }[ext] || "application/octet-stream";
+
+    res.writeHead(200, { "content-type": contentType });
+    fs.createReadStream(filePath).pipe(res);
+    return;
+  }
+
+  // Fallback to index.html for SPA routing (if not an API route)
+  if (!pathname.startsWith("/api/")) {
+    const indexPath = path.join(distPath, "index.html");
+    if (fs.existsSync(indexPath)) {
+      res.writeHead(200, { "content-type": "text/html" });
+      fs.createReadStream(indexPath).pipe(res);
+      return;
+    }
+  }
+
   notFound(res);
 }
 
