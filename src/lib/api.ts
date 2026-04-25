@@ -58,7 +58,10 @@ export type X402TransferResponse = {
   error?: { message: string };
 };
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8787";
+// In production, use relative URLs (same domain as frontend)
+// In development, use localhost:8787
+const API_URL = import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? "http://localhost:8787" : "");
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {

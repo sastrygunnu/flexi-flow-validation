@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: validly
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run server
+    healthCheckPath: /api/circle/status
+    envVars:
+      - key: CIRCLE_API_KEY
+        sync: false
+      - key: CIRCLE_ENTITY_SECRET
+        sync: false
+      - key: PAYER_WALLET_ID
+        sync: false
+      - key: PAY_TO_ADDRESS
+        sync: false
+      - key: BILL_USDC_CENTS
+        value: 1
+      - key: CIRCLE_GATEWAY_ENV
+        value: testnet
+      - key: ARC_RPC_URL
+        value: https://rpc.testnet.arc.network
+      - key: ARC_EXPLORER_BASE_URL
+        value: https://testnet.arcscan.app
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8787
