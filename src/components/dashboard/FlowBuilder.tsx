@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   DndContext,
   DragEndEvent,
@@ -29,6 +29,8 @@ import {
 import { STEP_LIBRARY, StepKind, getStep, ProviderOption } from "@/lib/validation-steps";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { api, Flow } from "@/lib/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 interface FlowStep {
   id: string;
@@ -223,13 +225,60 @@ function CanvasDropZone({
 
 /* ---------- Main builder ---------- */
 export function FlowBuilder() {
+  const qc = useQueryClient();
   const [flowName, setFlowName] = useState("us_onboarding");
   const [steps, setSteps] = useState<FlowStep[]>(initialFlow);
+  const [flowId, setFlowId] = useState<string | null>(null);
+  const [hydratedFromApi, setHydratedFromApi] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activePaletteKind, setActivePaletteKind] = useState<StepKind | null>(null);
   const [copied, setCopied] = useState(false);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const flowsQuery = useQuery({
+    queryKey: ["flows"],
+    queryFn: async () => {
+      const { flows } = await api.flows.list();
+      return flows;
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async (payload: { id?: string; name: string; steps: FlowStep[] }) => {
+      const stepsConfig = payload.steps.map((s) => ({ type: s.kind, provider: s.providerId }));
+      if (payload.id) {
+        const { flow } = await api.flows.update(payload.id, { name: payload.name, steps: stepsConfig });
+        return flow;
+      }
+      const { flow } = await api.flows.create({ name: payload.name, steps: stepsConfig });
+      return flow;
+    },
+    onSuccess: (flow: Flow) => {
+      setFlowId(flow.id);
+      qc.invalidateQueries({ queryKey: ["flows"] });
+      toast.success("Flow saved", { description: `"${flow.name}"` });
+    },
+    onError: (e) => {
+      toast.error("Save failed", { description: e instanceof Error ? e.message : "Unknown error" });
+    },
+  });
+
+  useEffect(() => {
+    if (hydratedFromApi) return;
+    if (!flowsQuery.data || flowsQuery.data.length === 0) return;
+    const latest = flowsQuery.data[0];
+    setFlowId(latest.id);
+    setFlowName(latest.name);
+    setSteps(
+      latest.steps.map((s, idx) => ({
+        id: `s_${idx}_${Date.now()}`,
+        kind: s.type,
+        providerId: s.provider,
+      })),
+    );
+    setHydratedFromApi(true);
+  }, [flowsQuery.data, hydratedFromApi]);
 
   const handleDragStart = (e: DragStartEvent) => {
     const data = e.active.data.current;
@@ -310,9 +359,7 @@ const result = await validly.run({
   };
 
   const handleDeploy = () => {
-    toast.success("Flow deployed", {
-      description: `"${flowName}" is live in production.`,
-    });
+    saveMutation.mutate({ id: flowId ?? undefined, name: flowName, steps });
   };
 
   return (
@@ -361,7 +408,7 @@ const result = await validly.run({
                 </div>
                 <Button variant="hero" size="sm" onClick={handleDeploy}>
                   <Rocket className="h-3.5 w-3.5" />
-                  Deploy
+                  {saveMutation.isPending ? "Saving…" : "Deploy"}
                 </Button>
               </div>
             </div>

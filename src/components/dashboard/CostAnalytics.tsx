@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   BarChart,
   Bar,
@@ -15,10 +15,10 @@ import {
   Line,
 } from "recharts";
 import { DollarSign, Coins, Zap, Activity, ExternalLink } from "lucide-react";
-import { generateMockLogs, groupLogsByRun, AuditLog } from "@/lib/audit-logs";
-
-const LOGS = generateMockLogs(28);
-const RUNS = groupLogsByRun(LOGS);
+import { groupLogsByRun, AuditLog } from "@/lib/audit-logs";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { ARC_EXPLORER_BASE_URL, arcTxUrl, normalizeEvmTxHash } from "@/lib/arc";
 
 // HSL strings using design tokens
 const CHART_COLORS = [
@@ -70,23 +70,45 @@ const tooltipStyle = {
 };
 
 export function CostAnalytics() {
+  const logsQuery = useQuery({
+    queryKey: ["logs", "analytics"],
+    queryFn: async () =>
+      (await api.logs.list({ limit: 400, hydrate: true, hydrateLimit: 25, hydrateTimeoutMs: 1500 })).logs,
+    refetchInterval: (query) => {
+      const logs = query.state.data as AuditLog[] | undefined;
+      const hasPending = Boolean(
+        logs?.some(
+          (l) =>
+            Boolean(l.payment?.gatewayTransferId) &&
+            !normalizeEvmTxHash(l.arcTxHash) &&
+            !normalizeEvmTxHash(l.payment?.arcTxHash),
+        ),
+      );
+      return hasPending ? 5000 : false;
+    },
+  });
+
+  const logs = logsQuery.data || [];
+  const [showAllPayments, setShowAllPayments] = useState(false);
+  const runs = useMemo(() => groupLogsByRun(logs), [logs]);
+
   // Per-flow cost
   const perFlow = useMemo(() => {
     const map = new Map<string, { flow: string; usdc: number; runs: number }>();
-    for (const r of RUNS) {
+    for (const r of runs) {
       const cur = map.get(r.flow) || { flow: r.flow, usdc: 0, runs: 0 };
       cur.usdc += r.totalCostUsdc;
       cur.runs += 1;
       map.set(r.flow, cur);
     }
     return Array.from(map.values()).sort((a, b) => b.usdc - a.usdc);
-  }, []);
+  }, [runs]);
 
   // Per-step × provider (stacked)
   const { perStep, providerKeys } = useMemo(() => {
     const stepMap = new Map<string, Record<string, number | string>>();
     const providers = new Set<string>();
-    for (const log of LOGS) {
+    for (const log of logs) {
       providers.add(log.provider);
       const row = stepMap.get(log.stepLabel) || { step: log.stepLabel };
       row[log.provider] = ((row[log.provider] as number) || 0) + log.costUsdc;
@@ -96,22 +118,22 @@ export function CostAnalytics() {
       perStep: Array.from(stepMap.values()),
       providerKeys: Array.from(providers),
     };
-  }, []);
+  }, [logs]);
 
   // Provider spend share
   const perProvider = useMemo(() => {
     const map = new Map<string, number>();
-    for (const log of LOGS) {
+    for (const log of logs) {
       map.set(log.provider, (map.get(log.provider) || 0) + log.costUsdc);
     }
     return Array.from(map.entries())
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
-  }, []);
+  }, [logs]);
 
   // Settlement timeline — Arc nanosecond finality per nanopayment
   const settlement = useMemo(() => {
-    return [...LOGS]
+    return [...logs]
       .sort(
         (a, b) =>
           new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
@@ -125,20 +147,25 @@ export function CostAnalytics() {
         ns: log.arcSettlementNs,
         provider: log.provider,
       }));
-  }, []);
+  }, [logs]);
 
   // Recent nanopayments
-  const recentPayments = useMemo(() => LOGS.slice(0, 6), []);
+  const recentPayments = useMemo(() => {
+    const sorted = [...logs].sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+    );
+    return sorted.slice(0, showAllPayments ? sorted.length : 6);
+  }, [logs, showAllPayments]);
 
   const totals = useMemo(() => {
-    const totalUsdc = LOGS.reduce((s, l) => s + l.costUsdc, 0);
-    const totalPayments = LOGS.length;
+    const totalUsdc = logs.reduce((s, l) => s + l.costUsdc, 0);
+    const totalPayments = logs.length;
     const avgNs = Math.round(
-      LOGS.reduce((s, l) => s + l.arcSettlementNs, 0) / LOGS.length,
+      logs.length ? logs.reduce((s, l) => s + l.arcSettlementNs, 0) / logs.length : 0,
     );
-    const avgPerPayment = totalUsdc / totalPayments;
+    const avgPerPayment = totalPayments ? totalUsdc / totalPayments : 0;
     return { totalUsdc, totalPayments, avgNs, avgPerPayment };
-  }, []);
+  }, [logs]);
 
   return (
     <div className="space-y-4">
@@ -364,19 +391,45 @@ export function CostAnalytics() {
       <div className="gradient-card border border-border rounded-xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div>
-            <h3 className="text-sm font-semibold">Recent Arc nanopayments</h3>
+            <h3 className="text-sm font-semibold">Recent payments</h3>
             <p className="text-xs text-muted-foreground">
-              On-chain settlements via Circle Nanopayments
+              Gateway transfers batch later; Arc transaction link appears once Circle includes a blockchain tx hash
             </p>
           </div>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground border border-border px-2 py-1 rounded-md">
-            Live · Arc Mainnet
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAllPayments((v) => !v)}
+              className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground border border-border bg-background/40 px-2 py-1 rounded-md transition-smooth"
+              title={showAllPayments ? "Show fewer payments" : "Show all payments"}
+            >
+              {showAllPayments ? "Show Less" : "Show All"}
+              <span className="text-muted-foreground/70">({logs.length})</span>
+            </button>
+            <a
+              href={ARC_EXPLORER_BASE_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-primary hover:text-primary/80 border border-primary/30 bg-primary/10 px-2 py-1 rounded-md transition-smooth"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Arc Explorer
+            </a>
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground border border-border px-2 py-1 rounded-md">
+              Live · Testnet
+            </span>
+          </div>
         </div>
-        <div className="divide-y divide-border">
-          {recentPayments.map((p) => (
-            <PaymentRow key={p.id} payment={p} />
-          ))}
+        <div className={`divide-y divide-border ${showAllPayments ? "max-h-[420px] overflow-auto" : ""}`}>
+          {logsQuery.isLoading ? (
+            <div className="p-6 text-sm text-muted-foreground">Loading payments…</div>
+          ) : recentPayments.length === 0 ? (
+            <div className="p-6 text-sm text-muted-foreground">
+              No payments yet. Generate a run in “Flow Logs” to create nanopayments.
+            </div>
+          ) : (
+            recentPayments.map((p) => <PaymentRow key={p.id} payment={p} />)
+          )}
         </div>
       </div>
     </div>
@@ -384,20 +437,82 @@ export function CostAnalytics() {
 }
 
 function PaymentRow({ payment }: { payment: AuditLog }) {
+  const txHash = normalizeEvmTxHash(payment.arcTxHash) || normalizeEvmTxHash(payment.payment?.arcTxHash);
+  const url = arcTxUrl(txHash);
+  const hasGatewayTransfer = Boolean(payment.payment?.gatewayTransferId);
+  const transferId = payment.payment?.gatewayTransferId;
+  const transferUrl = transferId
+    ? `${import.meta.env.VITE_API_URL || "http://localhost:8787"}/api/x402/transfers/${encodeURIComponent(transferId)}`
+    : null;
+  const transferStatus = payment.payment?.gatewayTransferStatus || "received";
+  
   return (
-    <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-4 px-5 py-3 text-sm">
+    <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-4 px-5 py-3 text-sm hover:bg-secondary/40 transition-smooth">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium">{payment.stepLabel}</span>
           <span className="text-xs text-muted-foreground">
             via {payment.provider}
           </span>
+          {hasGatewayTransfer && (
+            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-success/10 text-success border border-success/30">
+              Gateway
+            </span>
+          )}
+          {hasGatewayTransfer && (
+            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground border border-border">
+              {transferStatus}
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          <code className="text-[10px] font-mono text-muted-foreground truncate max-w-[280px]">
-            {payment.arcTxHash}
-          </code>
-          <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
+        <div className="flex flex-col gap-1 mt-1">
+          {/* Arc Transaction Hash */}
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] uppercase tracking-wider text-muted-foreground w-12">
+              Arc Tx
+            </span>
+            {url ? (
+              <a
+                className="inline-flex items-center gap-1.5 min-w-0 text-primary hover:text-primary/80 transition-smooth group"
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                title="View transaction on Arc Explorer"
+              >
+                <code className="text-[10px] font-mono truncate max-w-[240px] group-hover:underline underline-offset-2">
+                  {txHash}
+                </code>
+                <ExternalLink className="h-3 w-3 shrink-0" />
+              </a>
+            ) : (
+              <code className="text-[10px] font-mono text-muted-foreground truncate max-w-[240px]">
+                {hasGatewayTransfer ? "pending" : payment.arcTxHash || payment.payment?.arcTxHash || "pending"}
+              </code>
+            )}
+          </div>
+          {/* Gateway Transfer ID */}
+          {hasGatewayTransfer && (
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] uppercase tracking-wider text-muted-foreground w-12">
+                Transfer
+              </span>
+              <code className="text-[10px] font-mono text-muted-foreground truncate max-w-[240px]" title={transferId}>
+                {transferId}
+              </code>
+              {transferUrl && (
+                <a
+                  href={transferUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider text-muted-foreground hover:text-foreground border border-border px-1.5 py-0.5 rounded-md transition-smooth"
+                  title="Open Gateway transfer details (local JSON)"
+                >
+                  JSON
+                  <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
+                </a>
+              )}
+            </div>
+          )}
         </div>
       </div>
       <div className="text-xs font-mono tabular-nums text-accent">

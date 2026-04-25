@@ -52,7 +52,7 @@ const Login = () => {
             </p>
             <h1 className="text-2xl font-bold tracking-tight">Sign in to continue</h1>
             <p className="text-sm text-muted-foreground mt-2">
-              Access your flow builder, simulator, and audit logs.
+              Access your flow builder and audit logs.
             </p>
 
             <div className="mt-8">

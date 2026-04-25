@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Env (never commit secrets)
+.env
+.env.*
+
+# Local backend data
+server/data/

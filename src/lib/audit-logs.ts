@@ -2,20 +2,32 @@ import { StepKind } from "./validation-steps";
 
 export type LogStatus = "success" | "failed" | "timeout";
 
+export type RunStatus = LogStatus | "running";
+
 export type PaymentStatus = "paid" | "pending" | "failed" | "skipped";
 
 export interface PaymentInfo {
   status: PaymentStatus; // settlement state of the per-API-call nanopayment
   rail: "circle_arc" | "x402"; // which rail carried the value
   amountUsdc: number; // amount paid for THIS api call
+  requestedAmountUsdc?: number; // what the API attempted to charge (0 if free)
   payerWallet: string; // your app wallet (debited)
   payeeWallet: string; // provider wallet (credited)
-  arcTxHash: string; // Arc L1 settlement tx hash
+  arcTxHash?: string | null; // Arc L1 settlement tx hash (if available)
   nanopaymentId: string; // Circle Nanopayment id
   settlementNs: number; // sub-second finality on Arc, in nanoseconds
   invoiceId: string; // x402 / provider invoice reference
+  gatewayTransferId?: string; // Circle Gateway x402 transfer id (UUID)
+  gatewayTransferStatus?: string | null; // received/batched/confirmed/completed/failed
+  gatewayNetwork?: string | null; // CAIP-2 network identifier
+  x402Version?: number | null;
+  x402Asset?: string | null; // token address
+  authorizationNonce?: string | null; // EIP-3009 nonce (bytes32)
+  authorizationValidAfter?: string | null;
+  authorizationValidBefore?: string | null;
+  payTo?: string; // destination address for this payment
   settledAt: string; // ISO timestamp settlement confirmed
-  gasUsdc: number; // protocol fee paid in USDC
+  gasUsdc?: number | null; // protocol fee paid in USDC (not available for batched x402)
   reason?: string; // present when status != paid
 }
 
@@ -34,7 +46,7 @@ export interface AuditLog {
   costUsd: number;
   // Circle Arc / Nanopayment settlement metadata (mirrored on payment)
   costUsdc: number; // USDC settled on Arc (== costUsd at 1:1 peg, kept separate for clarity)
-  arcTxHash: string; // Arc L1 settlement tx hash
+  arcTxHash?: string | null; // Arc L1 settlement tx hash (if available)
   arcSettlementNs: number; // settlement latency in nanoseconds (Arc sub-second finality)
   nanopaymentId: string; // Circle Nanopayment id
   payment: PaymentInfo; // per-API-call payment receipt
@@ -53,7 +65,7 @@ export interface FlowRun {
   totalCostUsdc: number; // total USDC settled on Arc for this flow
   avgArcSettlementNs: number; // average Arc settlement latency in nanoseconds
   nanopaymentCount: number; // number of Circle Nanopayments emitted
-  status: LogStatus;
+  status: RunStatus;
   steps: AuditLog[];
 }
 

@@ -56,7 +56,7 @@ export const DeveloperTools = () => {
             <span className="text-gradient">with confidence.</span>
           </h2>
           <p className="text-lg text-muted-foreground">
-            Audit logs for every call, a dynamic simulator for edge cases, an isolated dev environment,
+            Audit logs for every call, edge-case testing, an isolated dev environment,
             and the option to deploy on your own servers.
           </p>
         </div>

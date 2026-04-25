@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, Search, Download, FileText, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { ChevronDown, Search, Download, FileText, CheckCircle2, XCircle, Clock, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -9,12 +9,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { generateMockLogs, AuditLog, LogStatus } from "@/lib/audit-logs";
+import { AuditLog, LogStatus } from "@/lib/audit-logs";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-
-const ALL_LOGS = generateMockLogs(80);
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { arcTxUrl, normalizeEvmTxHash } from "@/lib/arc";
 
 const statusMeta: Record<LogStatus, { label: string; className: string; Icon: typeof CheckCircle2 }> = {
   success: {
@@ -113,14 +114,47 @@ function LogRow({ log }: { log: AuditLog }) {
                 {log.payment.rail === "circle_arc" ? "Circle Arc · Nanopayment" : "x402"}
               </span>
             </div>
-            <div className="bg-background border border-border rounded-md p-3 grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs font-mono">
+              <div className="bg-background border border-border rounded-md p-3 grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs font-mono">
               <div className="flex justify-between gap-2"><span className="text-muted-foreground">Amount</span><span>{log.payment.amountUsdc.toFixed(6)} USDC</span></div>
-              <div className="flex justify-between gap-2"><span className="text-muted-foreground">Gas</span><span>{log.payment.gasUsdc.toFixed(6)} USDC</span></div>
+              <div className="flex justify-between gap-2">
+                <span className="text-muted-foreground">Gas</span>
+                <span>
+                  {log.payment.rail === "x402"
+                    ? "Batched"
+                    : typeof log.payment.gasUsdc === "number"
+                      ? `${log.payment.gasUsdc.toFixed(6)} USDC`
+                      : "—"}
+                </span>
+              </div>
               <div className="flex justify-between gap-2"><span className="text-muted-foreground">Finality</span><span>{log.payment.settlementNs} ns</span></div>
               <div className="flex justify-between gap-2"><span className="text-muted-foreground">Settled</span><span>{new Date(log.payment.settledAt).toISOString()}</span></div>
               <div className="flex justify-between gap-2 sm:col-span-2"><span className="text-muted-foreground shrink-0">Payer</span><span className="truncate" title={log.payment.payerWallet}>{log.payment.payerWallet}</span></div>
               <div className="flex justify-between gap-2 sm:col-span-2"><span className="text-muted-foreground shrink-0">Payee ({log.provider})</span><span className="truncate" title={log.payment.payeeWallet}>{log.payment.payeeWallet}</span></div>
-              <div className="flex justify-between gap-2 sm:col-span-2"><span className="text-muted-foreground shrink-0">Arc tx</span><span className="truncate" title={log.payment.arcTxHash}>{log.payment.arcTxHash}</span></div>
+              <div className="flex justify-between gap-2 sm:col-span-2">
+                <span className="text-muted-foreground shrink-0">Arc tx</span>
+                {(() => {
+                  const txHash = normalizeEvmTxHash(log.arcTxHash) || normalizeEvmTxHash(log.payment?.arcTxHash);
+                  const url = arcTxUrl(txHash);
+                  return url ? (
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 text-primary hover:text-primary/80 transition-smooth group"
+                    title="View on Arc Explorer"
+                  >
+                    <span className="truncate font-mono text-xs group-hover:underline underline-offset-2" title={txHash || ""}>
+                      {txHash}
+                    </span>
+                    <ExternalLink className="h-3 w-3 shrink-0" />
+                  </a>
+                  ) : (
+                    <span className="truncate" title={String(log.payment?.arcTxHash || "")}>
+                      {log.payment?.gatewayTransferId || log.payment?.arcTxHash || "pending"}
+                    </span>
+                  );
+                })()}
+              </div>
               <div className="flex justify-between gap-2 sm:col-span-2"><span className="text-muted-foreground shrink-0">Nanopayment</span><span className="truncate">{log.payment.nanopaymentId}</span></div>
               <div className="flex justify-between gap-2 sm:col-span-2"><span className="text-muted-foreground shrink-0">Invoice</span><span className="truncate">{log.payment.invoiceId}</span></div>
               {log.payment.reason && (
@@ -146,17 +180,37 @@ function LogRow({ log }: { log: AuditLog }) {
 }
 
 export function AuditLogs() {
+  const logsQuery = useQuery({
+    queryKey: ["logs"],
+    queryFn: async () =>
+      (await api.logs.list({ limit: 400, hydrate: true, hydrateLimit: 25, hydrateTimeoutMs: 1500 })).logs,
+    refetchInterval: (query) => {
+      const logs = query.state.data as AuditLog[] | undefined;
+      const hasPending = Boolean(
+        logs?.some(
+          (l) =>
+            Boolean(l.payment?.gatewayTransferId) &&
+            !normalizeEvmTxHash(l.arcTxHash) &&
+            !normalizeEvmTxHash(l.payment?.arcTxHash),
+        ),
+      );
+      return hasPending ? 5000 : false;
+    },
+  });
+
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [stepFilter, setStepFilter] = useState<string>("all");
 
+  const allLogs = logsQuery.data || [];
+
   const stepOptions = useMemo(
-    () => Array.from(new Set(ALL_LOGS.map((l) => l.stepLabel))),
-    [],
+    () => Array.from(new Set(allLogs.map((l) => l.stepLabel))),
+    [allLogs],
   );
 
   const filtered = useMemo(() => {
-    return ALL_LOGS.filter((l) => {
+    return allLogs.filter((l) => {
       if (statusFilter !== "all" && l.status !== statusFilter) return false;
       if (stepFilter !== "all" && l.stepLabel !== stepFilter) return false;
       if (query) {
@@ -166,7 +220,7 @@ export function AuditLogs() {
       }
       return true;
     });
-  }, [query, statusFilter, stepFilter]);
+  }, [allLogs, query, statusFilter, stepFilter]);
 
   const exportCsv = () => {
     const headers = [
@@ -340,9 +394,13 @@ export function AuditLogs() {
           <span>Cost</span>
           <span>Status</span>
         </div>
-        {filtered.length === 0 ? (
+        {logsQuery.isLoading ? (
           <div className="p-12 text-center text-sm text-muted-foreground">
-            No logs match your filters.
+            Loading logs…
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="p-12 text-center text-sm text-muted-foreground">
+            No logs match your filters. Generate a run in “Flow Logs” to create logs.
           </div>
         ) : (
           <div className="max-h-[640px] overflow-y-auto">

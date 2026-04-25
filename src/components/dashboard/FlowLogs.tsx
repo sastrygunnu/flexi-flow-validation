@@ -19,19 +19,39 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  generateMockLogs,
-  groupLogsByRun,
   AuditLog,
   FlowRun,
   LogStatus,
+  RunStatus,
 } from "@/lib/audit-logs";
+import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-const ALL_RUNS = groupLogsByRun(generateMockLogs(24));
+function shortAddress(address: string) {
+  const a = address.trim();
+  if (a.length <= 12) return a;
+  return `${a.slice(0, 6)}…${a.slice(-4)}`;
+}
+
+const ARC_EXPLORER_BASE_URL =
+  import.meta.env.VITE_ARC_EXPLORER_BASE_URL || "https://testnet.arcscan.app";
+
+function arcTxUrl(txHash: string) {
+  const base = ARC_EXPLORER_BASE_URL.replace(/\/+$/, "");
+  return `${base}/tx/${txHash}`;
+}
 
 const statusMeta: Record<
-  LogStatus,
+  RunStatus,
   { label: string; className: string; dot: string; Icon: typeof CheckCircle2 }
 > = {
+  running: {
+    label: "Running",
+    className: "bg-secondary/60 text-foreground border-border",
+    dot: "bg-muted-foreground",
+    Icon: Clock,
+  },
   success: {
     label: "Success",
     className: "bg-success/10 text-success border-success/30",
@@ -152,7 +172,13 @@ function StepDetail({ step }: { step: AuditLog }) {
               </div>
               <div className="flex justify-between gap-2">
                 <span className="text-muted-foreground">Gas</span>
-                <span>{step.payment.gasUsdc.toFixed(6)} USDC</span>
+                <span>
+                  {step.payment.rail === "x402"
+                    ? "Batched"
+                    : typeof step.payment.gasUsdc === "number"
+                      ? `${step.payment.gasUsdc.toFixed(6)} USDC`
+                      : "—"}
+                </span>
               </div>
               <div className="flex justify-between gap-2">
                 <span className="text-muted-foreground">Finality</span>
@@ -170,21 +196,37 @@ function StepDetail({ step }: { step: AuditLog }) {
                 <span className="text-muted-foreground shrink-0">Payee ({step.provider})</span>
                 <span className="truncate" title={step.payment.payeeWallet}>{step.payment.payeeWallet}</span>
               </div>
-              <div className="flex justify-between gap-2 sm:col-span-2">
-                <span className="text-muted-foreground shrink-0">Arc tx</span>
-                <span className="truncate" title={step.payment.arcTxHash}>{step.payment.arcTxHash}</span>
-              </div>
-              <div className="flex justify-between gap-2 sm:col-span-2">
-                <span className="text-muted-foreground shrink-0">Nanopayment</span>
-                <span className="truncate">{step.payment.nanopaymentId}</span>
-              </div>
-              <div className="flex justify-between gap-2 sm:col-span-2">
-                <span className="text-muted-foreground shrink-0">Invoice</span>
-                <span className="truncate">{step.payment.invoiceId}</span>
-              </div>
+              {step.payment.gatewayTransferId ? (
+                <>
+                  <div className="flex justify-between gap-2 sm:col-span-2">
+                    <span className="text-muted-foreground shrink-0">Circle Transfer ID</span>
+                    <span className="truncate font-mono text-xs" title={step.payment.gatewayTransferId}>
+                      {step.payment.gatewayTransferId}
+                    </span>
+                  </div>
+                  <div className="sm:col-span-2 text-xs text-muted-foreground italic">
+                    ✓ Off-chain settlement via Circle Nanopayments (batched onchain later for gas efficiency)
+                  </div>
+                </>
+              ) : (
+                <div className="sm:col-span-2 text-xs text-muted-foreground italic">
+                  No payment data (API call failed or timed out)
+                </div>
+              )}
               {step.payment.reason && (
-                <div className="sm:col-span-2 text-muted-foreground italic normal-case">
-                  {step.payment.reason}
+                <div className="sm:col-span-2">
+                  <div className="bg-destructive/10 text-destructive border border-destructive/30 rounded-md p-2 text-xs">
+                    <strong className="block mb-1">Payment Failed:</strong>
+                    <span className="italic">{step.payment.reason}</span>
+                    {step.payment.reason === "insufficient_balance" && (
+                      <div className="mt-2 text-xs">
+                        <p className="mb-1">⚠️ Your Gateway wallet balance is insufficient.</p>
+                        <p className="text-muted-foreground">
+                          To fix: Run <code className="bg-background px-1 py-0.5 rounded text-[10px]">npm run circle:deposit -- --amount 10</code>
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -291,18 +333,105 @@ function FlowRunCard({ run }: { run: FlowRun }) {
 }
 
 export function FlowLogs() {
+  const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [flowFilter, setFlowFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [selectedFlowId, setSelectedFlowId] = useState<string>(""); // for scenario runs
+  const [scenarioPreset, setScenarioPreset] = useState<
+    "sample" | "paid_all_success" | "fail_step" | "timeout_step" | "random"
+  >("sample");
+  const [scenarioStepIndex, setScenarioStepIndex] = useState<string>("0");
+  const [continueOnFailure, setContinueOnFailure] = useState(false);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+
+  const flowsQuery = useQuery({
+    queryKey: ["flows"],
+    queryFn: async () => (await api.flows.list()).flows,
+  });
+
+  const runsQuery = useQuery({
+    queryKey: ["runs"],
+    queryFn: async () => (await api.runs.list(80)).runs,
+    refetchInterval: (query) => {
+      const runs = query.state.data as FlowRun[] | undefined;
+      const hasRunning = Boolean(runs?.some((r) => r.status === "running"));
+      return hasRunning ? 1000 : false;
+    },
+  });
+
+  const circleQuery = useQuery({
+    queryKey: ["circle-status"],
+    queryFn: async () => api.circle.status(),
+    refetchInterval: 30_000,
+  });
+
+  const runMutation = useMutation({
+    mutationFn: async () => {
+      const flows = flowsQuery.data || [];
+      const flowId = selectedFlowId || flows[0]?.id;
+      if (!flowId) throw new Error("No flows found (open Flow Builder and deploy once)");
+      const flow = flows.find((f) => f.id === flowId);
+      const stepCount = flow?.steps?.length || 0;
+
+      const base = {
+        flowId,
+        user: { phone: "+14155550182", email: "alex@startup.io" },
+        continueOnFailure,
+        async: true,
+      } as const;
+
+      if (scenarioPreset === "paid_all_success") {
+        const { run } = await api.runs.create({ ...base, forceStatus: "success" });
+        return run;
+      }
+
+      if (scenarioPreset === "random") {
+        const stepOutcomes = Array.from({ length: stepCount }, () => "random" as const);
+        const { run } = await api.runs.create({ ...base, stepOutcomes });
+        return run;
+      }
+
+      if (scenarioPreset === "fail_step" || scenarioPreset === "timeout_step") {
+        const idx = Math.max(0, Math.min(stepCount - 1, Number(scenarioStepIndex || 0)));
+        const stepOutcomes = Array.from({ length: stepCount }, () => "success" as const);
+        stepOutcomes[idx] = scenarioPreset === "fail_step" ? "failed" : "timeout";
+        const { run } = await api.runs.create({ ...base, stepOutcomes });
+        return run;
+      }
+
+      const { run } = await api.runs.create({ ...base });
+      return run;
+    },
+    onSuccess: async (run) => {
+      setActiveRunId(run.runId);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["runs"] }),
+        qc.invalidateQueries({ queryKey: ["logs"] }),
+      ]);
+    },
+  });
+
+  const allRuns = runsQuery.data || [];
+  const flowsById = useMemo(() => {
+    const flows = flowsQuery.data || [];
+    const map = new Map<string, (typeof flows)[number]>();
+    for (const f of flows) map.set(f.id, f);
+    return map;
+  }, [flowsQuery.data]);
+
+  const selectedFlow = selectedFlowId ? flowsById.get(selectedFlowId) : (flowsQuery.data || [])[0];
+  const selectedFlowStepCount = selectedFlow?.steps?.length || 0;
+  const stepIndexOptions = Array.from({ length: selectedFlowStepCount }, (_, i) => String(i));
 
   const flows = useMemo(
-    () => Array.from(new Set(ALL_RUNS.map((r) => r.flow))),
-    [],
+    () => Array.from(new Set(allRuns.map((r) => r.flow))),
+    [allRuns],
   );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return ALL_RUNS.filter((r) => {
+    return allRuns.filter((r) => {
       if (flowFilter !== "all" && r.flow !== flowFilter) return false;
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
       if (!q) return true;
@@ -317,7 +446,7 @@ export function FlowLogs() {
         )
       );
     });
-  }, [search, flowFilter, statusFilter]);
+  }, [allRuns, search, flowFilter, statusFilter]);
 
   const totals = useMemo(() => {
     const totalSteps = filtered.reduce((s, r) => s + r.steps.length, 0);
@@ -344,7 +473,93 @@ export function FlowLogs() {
             Every flow execution grouped end-to-end. Drill into any step to
             inspect input / output params, latency, and cost.
           </p>
+          <div className="mt-2 text-[11px] text-muted-foreground font-mono">
+            Payer{" "}
+            {circleQuery.data?.payer?.address
+              ? shortAddress(circleQuery.data.payer.address)
+              : "—"}{" "}
+            · USDC{" "}
+            {circleQuery.data?.payerBalances?.usdc?.amount
+              ? Number(circleQuery.data.payerBalances.usdc.amount).toFixed(2)
+              : "—"}
+          </div>
         </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => runMutation.mutate()}
+            disabled={runMutation.isPending || flowsQuery.isLoading}
+          >
+            {runMutation.isPending ? "Starting…" : "Run scenario"}
+          </Button>
+        </div>
+      </div>
+
+      {/* Scenario runner */}
+      <div className="gradient-card border border-border rounded-xl p-4 flex flex-wrap items-center gap-3">
+        <Select
+          value={selectedFlowId || selectedFlow?.id || ""}
+          onValueChange={(v) => setSelectedFlowId(v)}
+        >
+          <SelectTrigger className="w-[220px]">
+            <SelectValue placeholder="Flow" />
+          </SelectTrigger>
+          <SelectContent>
+            {(flowsQuery.data || []).map((f) => (
+              <SelectItem key={f.id} value={f.id}>
+                {f.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={scenarioPreset} onValueChange={(v) => setScenarioPreset(v as typeof scenarioPreset)}>
+          <SelectTrigger className="w-[220px]">
+            <SelectValue placeholder="Scenario" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="sample">Sample (random outcomes)</SelectItem>
+            <SelectItem value="paid_all_success">Paid demo (all success)</SelectItem>
+            <SelectItem value="fail_step">Fail at step…</SelectItem>
+            <SelectItem value="timeout_step">Timeout at step…</SelectItem>
+            <SelectItem value="random">Chaos (random each step)</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {(scenarioPreset === "fail_step" || scenarioPreset === "timeout_step") && (
+          <Select value={scenarioStepIndex} onValueChange={setScenarioStepIndex}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Step" />
+            </SelectTrigger>
+            <SelectContent>
+              {stepIndexOptions.map((i) => (
+                <SelectItem key={i} value={i}>
+                  Step {Number(i) + 1}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setContinueOnFailure((v) => !v)}
+          className={`px-3 py-2 rounded-md text-xs font-medium border transition-smooth ${
+            continueOnFailure
+              ? "border-primary bg-primary/10 text-primary"
+              : "border-border bg-background hover:border-primary/40"
+          }`}
+          title="When enabled, the flow continues executing even if a step fails/timeouts."
+        >
+          Continue on failure: {continueOnFailure ? "On" : "Off"}
+        </button>
+
+        {activeRunId && (
+          <span className="text-[11px] text-muted-foreground font-mono">
+            last run {activeRunId}
+          </span>
+        )}
       </div>
 
       {/* Stats */}
@@ -412,6 +627,7 @@ export function FlowLogs() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="running">Running</SelectItem>
             <SelectItem value="success">Success</SelectItem>
             <SelectItem value="failed">Failed</SelectItem>
             <SelectItem value="timeout">Timeout</SelectItem>
@@ -420,10 +636,14 @@ export function FlowLogs() {
       </div>
 
       {/* Runs */}
-      {filtered.length === 0 ? (
+      {runsQuery.isLoading ? (
+        <div className="gradient-card border border-border rounded-xl p-12 text-center">
+          <p className="text-sm text-muted-foreground">Loading flow runs…</p>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="gradient-card border border-border rounded-xl p-12 text-center">
           <p className="text-sm text-muted-foreground">
-            No flow runs match your filters.
+            No flow runs match your filters. Click “Run sample” to generate one.
           </p>
         </div>
       ) : (

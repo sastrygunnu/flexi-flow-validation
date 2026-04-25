@@ -3,13 +3,11 @@ import { Navbar } from "@/components/Navbar";
 import { FlowBuilder } from "@/components/dashboard/FlowBuilder";
 import { AuditLogs } from "@/components/dashboard/AuditLogs";
 import { FlowLogs } from "@/components/dashboard/FlowLogs";
-import { Simulator } from "@/components/dashboard/Simulator";
 import { Overview } from "@/components/dashboard/Overview";
 import { CostAnalytics } from "@/components/dashboard/CostAnalytics";
-import { ScenarioRunner } from "@/components/dashboard/ScenarioRunner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-type TabKey = "overview" | "builder" | "simulator" | "scenario" | "flow-logs" | "logs" | "costs";
+type TabKey = "overview" | "builder" | "flow-logs" | "logs" | "costs";
 
 const Dashboard = () => {
   const [tab, setTab] = useState<TabKey>("overview");
@@ -36,8 +34,6 @@ const Dashboard = () => {
             <TabsList>
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="builder">Flow Builder</TabsTrigger>
-              <TabsTrigger value="simulator">Simulator</TabsTrigger>
-              <TabsTrigger value="scenario">Run Scenario</TabsTrigger>
               <TabsTrigger value="flow-logs">Flow Logs</TabsTrigger>
               <TabsTrigger value="logs">Audit Logs</TabsTrigger>
               <TabsTrigger value="costs">Cost Analytics</TabsTrigger>
@@ -49,14 +45,6 @@ const Dashboard = () => {
 
             <TabsContent value="builder">
               <FlowBuilder />
-            </TabsContent>
-
-            <TabsContent value="simulator">
-              <Simulator />
-            </TabsContent>
-
-            <TabsContent value="scenario">
-              <ScenarioRunner />
             </TabsContent>
 
             <TabsContent value="flow-logs">
