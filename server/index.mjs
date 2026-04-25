@@ -345,6 +345,25 @@ function atomicFromUsdcCents(cents, decimals) {
   return (BigInt(Math.trunc(c)) * scale).toString();
 }
 
+function atomicFromUsdcDecimal(amountUsdc, decimals) {
+  const d = Number(decimals);
+  if (!Number.isInteger(d) || d < 0) {
+    throw new Error(`Invalid USDC decimals (${decimals}); expected a non-negative integer`);
+  }
+
+  const s =
+    typeof amountUsdc === "number" ? amountUsdc.toFixed(Math.min(d, 12)) : String(amountUsdc);
+  const trimmed = s.trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) throw new Error(`Invalid USDC amount: ${amountUsdc}`);
+
+  const [wholeRaw, fracRaw = ""] = trimmed.split(".");
+  const whole = BigInt(wholeRaw || "0");
+  const fracPadded = (fracRaw + "0".repeat(d)).slice(0, d);
+  const frac = BigInt(fracPadded || "0");
+  const denom = 10n ** BigInt(d);
+  return (whole * denom + frac).toString();
+}
+
 function hasCirclePaymentConfig() {
   return Boolean(
     process.env.CIRCLE_API_KEY &&
@@ -352,6 +371,11 @@ function hasCirclePaymentConfig() {
       process.env.PAYER_WALLET_ID &&
       process.env.PAY_TO_ADDRESS,
   );
+}
+
+function allowMockPayments() {
+  const raw = process.env.ALLOW_MOCK_PAYMENTS;
+  return raw === "1" || String(raw || "").toLowerCase() === "true";
 }
 
 async function createCircleX402Receipt({ amountAtomic, payTo, memo, resource }) {
@@ -418,7 +442,21 @@ async function createCircleX402Receipt({ amountAtomic, payTo, memo, resource }) 
 
   // Debug logging for Circle Gateway request
   console.log("[x402] Sending to Circle Gateway /v1/x402/settle:", JSON.stringify({
-    paymentRequirements,
+    paymentRequirements: {
+      ...paymentRequirements,
+      amountUsdc: (() => {
+        try {
+          const decimals = kind.usdc.decimals ?? 6;
+          const atomic = BigInt(String(paymentRequirements.amount));
+          const denom = 10n ** BigInt(decimals);
+          const whole = atomic / denom;
+          const frac = atomic % denom;
+          return `${whole.toString()}.${frac.toString().padStart(decimals, "0")}`.replace(/\.?0+$/, "");
+        } catch {
+          return null;
+        }
+      })(),
+    },
     paymentPayload
   }, null, 2));
 
@@ -504,6 +542,10 @@ async function executeRun({ runId, flow, body, forcedStatus, stepOutcomes, conti
   const runIdx = db.runs.findIndex((r) => r.runId === runId);
   if (runIdx === -1) return;
 
+  const paymentsEnabled = hasCirclePaymentConfig();
+  const payer = paymentsEnabled ? await getPayerWallet().catch(() => null) : null;
+  const mockPayerWallet = `0x${crypto.randomBytes(20).toString("hex")}`;
+
   const run = db.runs[runIdx];
   const steps = Array.isArray(run.steps) ? run.steps : [];
   let totalDurationMs = run.totalDurationMs || 0;
@@ -522,8 +564,12 @@ async function executeRun({ runId, flow, body, forcedStatus, stepOutcomes, conti
 
     let status = resolvePlannedStatus({ forcedStatus, stepOutcomes, index: i });
     const durationMs = status === "timeout" ? 30000 : Math.round(80 + Math.random() * 2400);
-    const requestedUsdc = status === "success" ? usdcFromCents(centsPerPaidCall()) : 0;
+    const fallbackUsdc = usdcFromCents(centsPerPaidCall());
+    const requestedUsdc = status === "success" ? Number(provider.costUsd ?? fallbackUsdc) : 0;
     const requestedUsd = requestedUsdc;
+
+    // Debug logging for pricing
+    console.log(`[payment] ${step.label} via ${provider.name}: provider.costUsd=${provider.costUsd}, fallback=${fallbackUsdc}, final=${requestedUsdc}`);
 
     const payTo = process.env.PAY_TO_ADDRESS || `0x${crypto.randomBytes(20).toString("hex")}`;
     const settledAt = new Date(Date.now() + 1).toISOString();
@@ -533,8 +579,8 @@ async function executeRun({ runId, flow, body, forcedStatus, stepOutcomes, conti
     let nanopaymentId = null;
     let settlementNs = null;
     let invoiceId = null;
-    let payerWallet = `0x${crypto.randomBytes(20).toString("hex")}`;
-    let payeeWallet = `0x${crypto.randomBytes(20).toString("hex")}`;
+    let payerWallet = payer?.address || mockPayerWallet;
+    let payeeWallet = payTo || `0x${crypto.randomBytes(20).toString("hex")}`;
     let paymentReason;
     let gatewayTransferId;
     let gatewayTransferStatus;
@@ -549,10 +595,10 @@ async function executeRun({ runId, flow, body, forcedStatus, stepOutcomes, conti
     let reqNetwork;
     let reqPayTo;
 
-    if (status === "success" && requestedUsd > 0 && hasCirclePaymentConfig()) {
+    if (status === "success" && requestedUsd > 0 && paymentsEnabled) {
       try {
         const kindInfo = await getArcTestnetKind();
-        const amountAtomic = atomicFromUsdcCents(centsPerPaidCall(), kindInfo.usdc.decimals ?? 6);
+        const amountAtomic = atomicFromUsdcDecimal(requestedUsdc, kindInfo.usdc.decimals ?? 6);
         const receipt = await createCircleX402Receipt({
           amountAtomic,
           payTo,
@@ -614,7 +660,7 @@ async function executeRun({ runId, flow, body, forcedStatus, stepOutcomes, conti
       nanopaymentId,
       payment: {
         status: paymentStatus,
-        rail: hasCirclePaymentConfig() ? "x402" : Math.random() < 0.85 ? "circle_arc" : "x402",
+        rail: paymentsEnabled ? "x402" : "x402",
         amountUsdc: paidUsdc,
         requestedAmountUsdc: requestedUsdc,
         payerWallet,
@@ -721,6 +767,30 @@ async function handle(req, res) {
 
   if (pathname === "/api/health" && req.method === "GET") {
     json(res, 200, { ok: true });
+    return;
+  }
+
+  if (pathname === "/api/debug/pricing" && req.method === "GET") {
+    const tests = [
+      {kind: 'phone', id: 'twilio'},
+      {kind: 'email', id: 'kickbox'},
+      {kind: 'identity', id: 'persona'},
+      {kind: 'address', id: 'google'},
+      {kind: 'bank', id: 'plaid'}
+    ];
+
+    const results = tests.map(t => {
+      const provider = getProvider(t.kind, t.id);
+      return {
+        kind: t.kind,
+        providerId: t.id,
+        providerName: provider.name,
+        costUsd: provider.costUsd,
+        hasNullish: provider.costUsd === null || provider.costUsd === undefined
+      };
+    });
+
+    json(res, 200, { results });
     return;
   }
 
@@ -1112,6 +1182,17 @@ async function handle(req, res) {
       return;
     }
 
+    if (!allowMockPayments() && !hasCirclePaymentConfig()) {
+      json(res, 503, {
+        ok: false,
+        error: {
+          message:
+            "Circle payments are not configured. Set CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET, PAYER_WALLET_ID, and PAY_TO_ADDRESS in .env (or set ALLOW_MOCK_PAYMENTS=true for demo-only mode).",
+        },
+      });
+      return;
+    }
+
     const db = await loadDb();
     const flowId = body?.flowId;
     const flow = db.flows.find((f) => f.id === flowId);
@@ -1128,16 +1209,26 @@ async function handle(req, res) {
     const runId = id("run");
     const startedAt = new Date().toISOString();
 
-    // Estimate worst-case cost (so we can preflight Gateway balance before starting).
-    const perCallUsdc = usdcFromCents(centsPerPaidCall());
+    // Estimate expected cost (so we can preflight Gateway balance before starting).
     let expectedPaidSteps = 0;
+    let estimatedCostUsdc = 0;
     for (let i = 0; i < flow.steps.length; i++) {
       const planned = forcedStatus ? forcedStatus : normalizeStepOutcome(stepOutcomes?.[i]);
       const isNonSuccess = planned === "failed" || planned === "timeout";
       expectedPaidSteps += isNonSuccess ? 0 : 1;
+      if (!isNonSuccess) {
+        const stepCfg = flow.steps[i];
+        const kind = stepCfg?.type || stepCfg?.kind;
+        const providerId = stepCfg?.provider || stepCfg?.providerId;
+        if (kind && providerId) {
+          const provider = getProvider(kind, providerId);
+          const fallbackUsdc = usdcFromCents(centsPerPaidCall());
+          estimatedCostUsdc += Number(provider.costUsd ?? fallbackUsdc);
+        }
+      }
       if (!continueOnFailure && isNonSuccess) break;
     }
-    const estimatedCostUsdc = expectedPaidSteps * perCallUsdc;
+    // expectedPaidSteps retained for debugging/telemetry if needed
 
     // NEW: Pre-flight balance check - verify sufficient Gateway balance BEFORE doing work
     if (hasCirclePaymentConfig() && estimatedCostUsdc > 0) {

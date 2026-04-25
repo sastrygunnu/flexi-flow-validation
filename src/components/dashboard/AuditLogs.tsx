@@ -400,7 +400,7 @@ export function AuditLogs() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center text-sm text-muted-foreground">
-            No logs match your filters. Generate a run in “Flow Logs” to create logs.
+            No logs match your filters. Run a scenario in "Run Scenario" to generate logs.
           </div>
         ) : (
           <div className="max-h-[640px] overflow-y-auto">

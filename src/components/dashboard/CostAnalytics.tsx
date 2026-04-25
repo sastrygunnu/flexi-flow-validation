@@ -176,12 +176,11 @@ export function CostAnalytics() {
         </div>
         <div className="flex-1">
           <h3 className="font-semibold text-sm">
-            Cost analytics · Settled on Arc · Paid in USDC
+            Payment analytics · Circle Gateway on Arc
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Every provider call emits a Circle Nanopayment that settles on Arc
-            (EVM L1) with sub-second finality. Track spend by flow, step, and
-            provider.
+            Every API call creates a Circle Gateway nanopayment settled on Arc testnet with sub-second finality.
+            View total spend broken down by flow, step, and provider.
           </p>
         </div>
         <span className="text-[10px] uppercase tracking-wider text-primary border border-primary/30 bg-primary/10 px-2 py-1 rounded-md">
@@ -222,7 +221,7 @@ export function CostAnalytics() {
       <div className="grid lg:grid-cols-2 gap-4">
         <ChartCard
           title="Cost per flow"
-          subtitle="USDC settled on Arc per validation flow"
+          subtitle="Total USDC charged for each validation flow"
         >
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={perFlow}>
@@ -256,7 +255,7 @@ export function CostAnalytics() {
 
         <ChartCard
           title="Provider spend share"
-          subtitle="Share of total USDC settled by provider"
+          subtitle="Percentage of total spend by provider"
         >
           <ResponsiveContainer width="100%" height={260}>
             <PieChart>
@@ -298,7 +297,7 @@ export function CostAnalytics() {
 
         <ChartCard
           title="Cost per step × provider"
-          subtitle="Stacked USDC spend per validation step, by provider"
+          subtitle="Total spend per validation step, broken down by provider"
         >
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={perStep}>
@@ -340,8 +339,8 @@ export function CostAnalytics() {
         </ChartCard>
 
         <ChartCard
-          title="Arc settlement latency"
-          subtitle="Nanopayment finality on Arc (nanoseconds, lower is better)"
+          title="Payment settlement speed"
+          subtitle="Time to finality for each payment on Arc (nanoseconds)"
         >
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={settlement}>
@@ -393,7 +392,7 @@ export function CostAnalytics() {
           <div>
             <h3 className="text-sm font-semibold">Recent payments</h3>
             <p className="text-xs text-muted-foreground">
-              Gateway transfers batch later; Arc transaction link appears once Circle includes a blockchain tx hash
+              Arc transaction links appear once Circle Gateway batches the payment to the blockchain
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -425,7 +424,7 @@ export function CostAnalytics() {
             <div className="p-6 text-sm text-muted-foreground">Loading payments…</div>
           ) : recentPayments.length === 0 ? (
             <div className="p-6 text-sm text-muted-foreground">
-              No payments yet. Generate a run in “Flow Logs” to create nanopayments.
+              No payments yet. Run a scenario in "Run Scenario" to generate payments.
             </div>
           ) : (
             recentPayments.map((p) => <PaymentRow key={p.id} payment={p} />)

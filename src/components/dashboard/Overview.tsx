@@ -9,6 +9,7 @@ import {
   Activity,
   ArrowRight,
   Coins,
+  Rocket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -16,7 +17,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { arcTxUrl } from "@/lib/arc";
 
 interface OverviewProps {
-  onNavigate: (tab: "builder" | "flow-logs" | "logs" | "costs") => void;
+  onNavigate: (tab: "builder" | "scenario" | "flow-logs" | "logs" | "costs") => void;
 }
 
 function shortAddress(address: string) {
@@ -113,25 +114,25 @@ export function Overview({ onNavigate }: OverviewProps) {
     {
       key: "builder" as const,
       title: "Flow Builder",
-      desc: "Compose validation steps and switch providers anytime.",
+      desc: "Design your validation flow by dragging steps and selecting providers.",
       Icon: Workflow,
     },
     {
-      key: "flow-logs" as const,
-      title: "Flow Logs",
-      desc: "Inspect every flow execution end-to-end.",
-      Icon: GitBranch,
+      key: "scenario" as const,
+      title: "Run Scenario",
+      desc: "Test your flow end-to-end with real Circle payments.",
+      Icon: Rocket,
     },
     {
       key: "logs" as const,
       title: "Audit Logs",
-      desc: "Drill into per-step API calls and export to CSV/PDF.",
+      desc: "View detailed execution logs and export to CSV or PDF.",
       Icon: ScrollText,
     },
     {
       key: "costs" as const,
       title: "Cost Analytics",
-      desc: "USDC spend per flow, step & provider — settled on Arc.",
+      desc: "Track USDC spend by flow, step, and provider.",
       Icon: Coins,
     },
   ];
@@ -154,8 +155,7 @@ export function Overview({ onNavigate }: OverviewProps) {
           Hi {displayName} 👋
         </h2>
         <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
-          Here's a snapshot of your validation flows. Jump into any tool below to
-          build, test, or audit.
+          Your validation flows at a glance. Choose a tool below to build flows, run tests, or review payment analytics.
         </p>
       </div>
 
@@ -206,56 +206,6 @@ export function Overview({ onNavigate }: OverviewProps) {
         />
       </div>
 
-      <div className="gradient-card border border-border rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-[240px]">
-          <div className="text-xs font-semibold">Circle Console transaction</div>
-          <div className="text-[11px] text-muted-foreground mt-1">
-            Creates a 0.01 USDC transfer via Circle Wallets (shows up in Console → Wallets → Transactions).
-          </div>
-          {latestCircleTx?.id ? (
-            <div className="text-[11px] text-muted-foreground font-mono mt-2">
-              tx {latestCircleTx.id} · {latestCircleTx.state}
-              {latestCircleTx.txHash ? ` · ${shortAddress(latestCircleTx.txHash)}` : ""}
-            </div>
-          ) : lastCircleTxId ? (
-            <div className="text-[11px] text-muted-foreground font-mono mt-2">
-              tx {lastCircleTxId} · loading…
-            </div>
-          ) : null}
-          {circleTxUrl ? (
-            <div className="mt-2">
-              <Button asChild size="sm" variant="outline">
-                <a
-                  href={circleTxUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Open in Arc Explorer
-                </a>
-              </Button>
-            </div>
-          ) : null}
-          {sendCircleTxMutation.isError ? (
-            <div className="text-[11px] text-destructive mt-2">
-              {sendCircleTxMutation.error instanceof Error
-                ? sendCircleTxMutation.error.message
-                : "Transfer failed"}
-            </div>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => sendCircleTxMutation.mutate()}
-            disabled={sendCircleTxMutation.isPending}
-            title="Creates a Circle Wallets transfer transaction"
-          >
-            {sendCircleTxMutation.isPending ? "Sending…" : "Send 0.01 USDC"}
-          </Button>
-        </div>
-      </div>
-
       {/* Quick links */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {quickLinks.map(({ key, title, desc, Icon }) => (
@@ -286,24 +236,7 @@ export function Overview({ onNavigate }: OverviewProps) {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => runMutation.mutate()}
-              disabled={runMutation.isPending || flowsQuery.isLoading}
-            >
-              {runMutation.isPending ? "Running…" : "Run sample"}
-            </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => runMutation.mutate({ forceStatus: "success" })}
-              disabled={runMutation.isPending || flowsQuery.isLoading}
-              title="For testing billing: forces all steps to succeed"
-            >
-              Run paid test
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => onNavigate("flow-logs")}>
+            <Button variant="outline" size="sm" onClick={() => onNavigate("logs")}>
               View all
               <ArrowRight className="h-3.5 w-3.5" />
             </Button>
@@ -320,7 +253,7 @@ export function Overview({ onNavigate }: OverviewProps) {
             recent.map((run) => (
               <button
                 key={run.runId}
-                onClick={() => onNavigate("flow-logs")}
+                onClick={() => onNavigate("logs")}
                 className="w-full flex items-center gap-3 px-5 py-3 hover:bg-secondary/40 transition-smooth text-left"
               >
                 <div className={`h-2 w-2 rounded-full ${statusDot[run.status]}`} />

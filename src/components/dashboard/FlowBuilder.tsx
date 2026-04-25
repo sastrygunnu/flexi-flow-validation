@@ -215,8 +215,8 @@ function CanvasDropZone({
           <div className="h-14 w-14 rounded-full border-2 border-dashed border-border flex items-center justify-center mb-4">
             <Plus className="h-6 w-6" />
           </div>
-          <p className="text-sm font-medium">Drag steps here to build your flow</p>
-          <p className="text-xs mt-1">Order matters — each step runs in sequence</p>
+          <p className="text-sm font-medium">Drop validation steps here</p>
+          <p className="text-xs mt-1">Steps execute top-to-bottom. Drag to reorder anytime.</p>
         </div>
       )}
     </div>
@@ -372,18 +372,23 @@ const result = await validly.run({
         {/* LEFT — Palette */}
         <aside className="space-y-4">
           <div className="gradient-card border border-border rounded-xl p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-              Step Library
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+              Available Steps
             </h3>
+            <p className="text-xs text-muted-foreground mb-3">
+              Drag validation steps to your flow
+            </p>
             <div className="space-y-2">
               {STEP_LIBRARY.map((s) => (
                 <PaletteItem key={s.kind} kind={s.kind} />
               ))}
             </div>
           </div>
-          <p className="text-xs text-muted-foreground px-2">
-            Drag any step into the canvas. Reorder by grabbing the handle.
-          </p>
+          <div className="gradient-card border border-primary/20 rounded-xl p-3 bg-primary/5">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              <span className="font-semibold text-foreground">How it works:</span> Each step calls a real API and charges your Circle Gateway balance. Switch providers anytime—pricing updates automatically.
+            </p>
+          </div>
         </aside>
 
         {/* CENTER — Canvas */}
@@ -391,7 +396,7 @@ const result = await validly.run({
           <div className="gradient-card border border-border rounded-xl p-5">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
               <div className="flex items-center gap-3 flex-1 min-w-[240px]">
-                <label className="text-xs text-muted-foreground font-mono">flow:</label>
+                <label className="text-xs text-muted-foreground font-mono">Flow name:</label>
                 <input
                   value={flowName}
                   onChange={(e) => setFlowName(e.target.value.replace(/\s+/g, "_"))}
@@ -400,11 +405,10 @@ const result = await validly.run({
               </div>
               <div className="flex items-center gap-2">
                 <div className="text-xs text-muted-foreground">
-                  Est.{" "}
+                  Cost per user:{" "}
                   <span className="font-mono font-semibold text-foreground">
                     ${totalCost.toFixed(3)}
-                  </span>{" "}
-                  / user
+                  </span>
                 </div>
                 <Button variant="hero" size="sm" onClick={handleDeploy}>
                   <Rocket className="h-3.5 w-3.5" />
@@ -459,11 +463,10 @@ const result = await validly.run({
 
           <div className="gradient-card border border-border rounded-xl p-4 space-y-2">
             <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Why this matters
+              Deploy & Test
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Switch any provider above — your code stays identical. The next API call
-              automatically uses the new vendor.
+              Click <span className="font-semibold text-foreground">Deploy</span> to save your flow. Then head to <span className="font-semibold text-foreground">Run Scenario</span> to test it with real Circle payments. Your integration code stays the same—just the provider config changes.
             </p>
           </div>
         </aside>

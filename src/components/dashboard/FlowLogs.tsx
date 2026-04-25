@@ -25,8 +25,7 @@ import {
   RunStatus,
 } from "@/lib/audit-logs";
 import { api } from "@/lib/api";
-import { Button } from "@/components/ui/button";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 function shortAddress(address: string) {
   const a = address.trim();
@@ -333,22 +332,9 @@ function FlowRunCard({ run }: { run: FlowRun }) {
 }
 
 export function FlowLogs() {
-  const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [flowFilter, setFlowFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [selectedFlowId, setSelectedFlowId] = useState<string>(""); // for scenario runs
-  const [scenarioPreset, setScenarioPreset] = useState<
-    "sample" | "paid_all_success" | "fail_step" | "timeout_step" | "random"
-  >("sample");
-  const [scenarioStepIndex, setScenarioStepIndex] = useState<string>("0");
-  const [continueOnFailure, setContinueOnFailure] = useState(false);
-  const [activeRunId, setActiveRunId] = useState<string | null>(null);
-
-  const flowsQuery = useQuery({
-    queryKey: ["flows"],
-    queryFn: async () => (await api.flows.list()).flows,
-  });
 
   const runsQuery = useQuery({
     queryKey: ["runs"],
@@ -366,63 +352,7 @@ export function FlowLogs() {
     refetchInterval: 30_000,
   });
 
-  const runMutation = useMutation({
-    mutationFn: async () => {
-      const flows = flowsQuery.data || [];
-      const flowId = selectedFlowId || flows[0]?.id;
-      if (!flowId) throw new Error("No flows found (open Flow Builder and deploy once)");
-      const flow = flows.find((f) => f.id === flowId);
-      const stepCount = flow?.steps?.length || 0;
-
-      const base = {
-        flowId,
-        user: { phone: "+14155550182", email: "alex@startup.io" },
-        continueOnFailure,
-        async: true,
-      } as const;
-
-      if (scenarioPreset === "paid_all_success") {
-        const { run } = await api.runs.create({ ...base, forceStatus: "success" });
-        return run;
-      }
-
-      if (scenarioPreset === "random") {
-        const stepOutcomes = Array.from({ length: stepCount }, () => "random" as const);
-        const { run } = await api.runs.create({ ...base, stepOutcomes });
-        return run;
-      }
-
-      if (scenarioPreset === "fail_step" || scenarioPreset === "timeout_step") {
-        const idx = Math.max(0, Math.min(stepCount - 1, Number(scenarioStepIndex || 0)));
-        const stepOutcomes = Array.from({ length: stepCount }, () => "success" as const);
-        stepOutcomes[idx] = scenarioPreset === "fail_step" ? "failed" : "timeout";
-        const { run } = await api.runs.create({ ...base, stepOutcomes });
-        return run;
-      }
-
-      const { run } = await api.runs.create({ ...base });
-      return run;
-    },
-    onSuccess: async (run) => {
-      setActiveRunId(run.runId);
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ["runs"] }),
-        qc.invalidateQueries({ queryKey: ["logs"] }),
-      ]);
-    },
-  });
-
   const allRuns = runsQuery.data || [];
-  const flowsById = useMemo(() => {
-    const flows = flowsQuery.data || [];
-    const map = new Map<string, (typeof flows)[number]>();
-    for (const f of flows) map.set(f.id, f);
-    return map;
-  }, [flowsQuery.data]);
-
-  const selectedFlow = selectedFlowId ? flowsById.get(selectedFlowId) : (flowsQuery.data || [])[0];
-  const selectedFlowStepCount = selectedFlow?.steps?.length || 0;
-  const stepIndexOptions = Array.from({ length: selectedFlowStepCount }, (_, i) => String(i));
 
   const flows = useMemo(
     () => Array.from(new Set(allRuns.map((r) => r.flow))),
@@ -484,82 +414,6 @@ export function FlowLogs() {
               : "—"}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => runMutation.mutate()}
-            disabled={runMutation.isPending || flowsQuery.isLoading}
-          >
-            {runMutation.isPending ? "Starting…" : "Run scenario"}
-          </Button>
-        </div>
-      </div>
-
-      {/* Scenario runner */}
-      <div className="gradient-card border border-border rounded-xl p-4 flex flex-wrap items-center gap-3">
-        <Select
-          value={selectedFlowId || selectedFlow?.id || ""}
-          onValueChange={(v) => setSelectedFlowId(v)}
-        >
-          <SelectTrigger className="w-[220px]">
-            <SelectValue placeholder="Flow" />
-          </SelectTrigger>
-          <SelectContent>
-            {(flowsQuery.data || []).map((f) => (
-              <SelectItem key={f.id} value={f.id}>
-                {f.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={scenarioPreset} onValueChange={(v) => setScenarioPreset(v as typeof scenarioPreset)}>
-          <SelectTrigger className="w-[220px]">
-            <SelectValue placeholder="Scenario" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="sample">Sample (random outcomes)</SelectItem>
-            <SelectItem value="paid_all_success">Paid demo (all success)</SelectItem>
-            <SelectItem value="fail_step">Fail at step…</SelectItem>
-            <SelectItem value="timeout_step">Timeout at step…</SelectItem>
-            <SelectItem value="random">Chaos (random each step)</SelectItem>
-          </SelectContent>
-        </Select>
-
-        {(scenarioPreset === "fail_step" || scenarioPreset === "timeout_step") && (
-          <Select value={scenarioStepIndex} onValueChange={setScenarioStepIndex}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Step" />
-            </SelectTrigger>
-            <SelectContent>
-              {stepIndexOptions.map((i) => (
-                <SelectItem key={i} value={i}>
-                  Step {Number(i) + 1}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-
-        <button
-          type="button"
-          onClick={() => setContinueOnFailure((v) => !v)}
-          className={`px-3 py-2 rounded-md text-xs font-medium border transition-smooth ${
-            continueOnFailure
-              ? "border-primary bg-primary/10 text-primary"
-              : "border-border bg-background hover:border-primary/40"
-          }`}
-          title="When enabled, the flow continues executing even if a step fails/timeouts."
-        >
-          Continue on failure: {continueOnFailure ? "On" : "Off"}
-        </button>
-
-        {activeRunId && (
-          <span className="text-[11px] text-muted-foreground font-mono">
-            last run {activeRunId}
-          </span>
-        )}
       </div>
 
       {/* Stats */}

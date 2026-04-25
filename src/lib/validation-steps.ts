@@ -25,7 +25,7 @@ export const STEP_LIBRARY: StepDefinition[] = [
     label: "Phone OTP",
     description: "SMS one-time password verification",
     icon: Phone,
-    unitCost: "$0.001",
+    unitCost: "$0.008",
     color: "primary",
     providers: [
       { id: "twilio", name: "Twilio", cost: "$0.008", reliability: 99 },
@@ -38,7 +38,7 @@ export const STEP_LIBRARY: StepDefinition[] = [
     label: "Email Verification",
     description: "Deliverability + disposable check",
     icon: Mail,
-    unitCost: "$0.002",
+    unitCost: "$0.004",
     color: "primary",
     providers: [
       { id: "kickbox", name: "Kickbox", cost: "$0.004", reliability: 98 },
@@ -53,9 +53,9 @@ export const STEP_LIBRARY: StepDefinition[] = [
     unitCost: "$0.85",
     color: "accent",
     providers: [
-      { id: "persona", name: "Persona", cost: "$1.25", reliability: 99 },
-      { id: "stripe", name: "Stripe Identity", cost: "$1.50", reliability: 98 },
-      { id: "onfido", name: "Onfido", cost: "$1.10", reliability: 97 },
+      { id: "persona", name: "Persona", cost: "$0.85", reliability: 99 },
+      { id: "stripe", name: "Stripe Identity", cost: "$0.95", reliability: 98 },
+      { id: "onfido", name: "Onfido", cost: "$0.75", reliability: 97 },
     ],
   },
   {
@@ -63,7 +63,7 @@ export const STEP_LIBRARY: StepDefinition[] = [
     label: "Address Validation",
     description: "Geocode + postal verification",
     icon: MapPin,
-    unitCost: "$0.01",
+    unitCost: "$0.017",
     color: "primary",
     providers: [
       { id: "google", name: "Google Maps", cost: "$0.017", reliability: 99 },
@@ -79,8 +79,8 @@ export const STEP_LIBRARY: StepDefinition[] = [
     unitCost: "$0.30",
     color: "accent",
     providers: [
-      { id: "plaid", name: "Plaid", cost: "$0.45", reliability: 99 },
-      { id: "tink", name: "Tink", cost: "$0.35", reliability: 97 },
+      { id: "plaid", name: "Plaid", cost: "$0.30", reliability: 99 },
+      { id: "tink", name: "Tink", cost: "$0.25", reliability: 97 },
     ],
   },
   {
@@ -88,7 +88,7 @@ export const STEP_LIBRARY: StepDefinition[] = [
     label: "Fraud Scoring",
     description: "Device + behavior risk score",
     icon: ShieldAlert,
-    unitCost: "$0.05",
+    unitCost: "$0.08",
     color: "accent",
     providers: [
       { id: "sift", name: "Sift", cost: "$0.08", reliability: 98 },

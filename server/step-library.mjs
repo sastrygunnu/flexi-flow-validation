@@ -20,9 +20,9 @@ export const STEP_LIBRARY = [
     kind: "identity",
     label: "Identity Check",
     providers: [
-      { id: "persona", name: "Persona", costUsd: 1.25, reliability: 99 },
-      { id: "stripe", name: "Stripe Identity", costUsd: 1.5, reliability: 98 },
-      { id: "onfido", name: "Onfido", costUsd: 1.1, reliability: 97 },
+      { id: "persona", name: "Persona", costUsd: 0.85, reliability: 99 },
+      { id: "stripe", name: "Stripe Identity", costUsd: 0.95, reliability: 98 },
+      { id: "onfido", name: "Onfido", costUsd: 0.75, reliability: 97 },
     ],
   },
   {
@@ -38,8 +38,8 @@ export const STEP_LIBRARY = [
     kind: "bank",
     label: "Bank Verification",
     providers: [
-      { id: "plaid", name: "Plaid", costUsd: 0.45, reliability: 99 },
-      { id: "tink", name: "Tink", costUsd: 0.35, reliability: 97 },
+      { id: "plaid", name: "Plaid", costUsd: 0.30, reliability: 99 },
+      { id: "tink", name: "Tink", costUsd: 0.25, reliability: 97 },
     ],
   },
   {

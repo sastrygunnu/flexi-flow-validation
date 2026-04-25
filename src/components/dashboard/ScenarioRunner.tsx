@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Play,
   Square,
@@ -10,6 +10,7 @@ import {
   Loader2,
   Coins,
   Zap,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,70 +20,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { STEP_LIBRARY, StepKind, getStep } from "@/lib/validation-steps";
+import { StepKind, getStep } from "@/lib/validation-steps";
 import { LogStatus, PaymentStatus } from "@/lib/audit-logs";
+import { api } from "@/lib/api";
+import { arcTxUrl, normalizeEvmTxHash } from "@/lib/arc";
 import { toast } from "sonner";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-type ScenarioId =
-  | "us_onboarding_happy"
-  | "eu_onboarding_happy"
-  | "high_risk_kyc"
-  | "fraud_block"
-  | "identity_timeout";
-
-interface ScenarioDef {
-  id: ScenarioId;
-  name: string;
-  flow: string;
-  description: string;
-  steps: StepKind[];
-  failAt?: number;
-  failMode?: "failed" | "timeout";
-}
-
-const SCENARIOS: ScenarioDef[] = [
-  {
-    id: "us_onboarding_happy",
-    name: "US Onboarding — Happy Path",
-    flow: "us_onboarding",
-    description: "Email → Phone → Identity → Address → Fraud, all pass. USDC settles per call on Arc.",
-    steps: ["email", "phone", "identity", "address", "fraud"],
-  },
-  {
-    id: "eu_onboarding_happy",
-    name: "EU Onboarding — Happy Path",
-    flow: "eu_onboarding",
-    description: "GDPR-friendly EU flow with 4 steps, all green.",
-    steps: ["email", "phone", "identity", "fraud"],
-  },
-  {
-    id: "high_risk_kyc",
-    name: "High-Risk KYC — Full Stack",
-    flow: "high_risk_kyc",
-    description: "Maximum verification: 6 steps incl. bank ownership. Higher USDC spend.",
-    steps: ["email", "phone", "identity", "address", "bank", "fraud"],
-  },
-  {
-    id: "fraud_block",
-    name: "Fraud Score Blocks Signup",
-    flow: "us_onboarding",
-    description: "Flow halts at fraud step — earlier nanopayments still settled, fraud call refunded.",
-    steps: ["email", "phone", "identity", "address", "fraud"],
-    failAt: 4,
-    failMode: "failed",
-  },
-  {
-    id: "identity_timeout",
-    name: "Identity Provider Timeout",
-    flow: "us_onboarding",
-    description: "Persona times out at step 3. Nanopayment stays pending until provider confirms.",
-    steps: ["email", "phone", "identity", "address", "fraud"],
-    failAt: 2,
-    failMode: "timeout",
-  },
-];
+type ScenarioPreset = "all_success" | "fail_step" | "timeout_step";
 
 type RunStepStatus = "queued" | "calling" | "settling" | LogStatus;
+
+type FlowStepConfig = { kind: StepKind; providerId: string };
 
 interface RunStep {
   index: number;
@@ -93,26 +42,54 @@ interface RunStep {
   paymentStatus?: PaymentStatus;
   durationMs?: number;
   costUsdc?: number;
-  arcTxHash?: string;
-  nanopaymentId?: string;
-  settlementNs?: number;
+  requestedAmountUsdc?: number | null;
+  chargedAmountUsdc?: number | null;
+  arcTxHash?: string | null;
+  gatewayTransferId?: string | null;
+  gatewayTransferStatus?: string | null;
+  gatewayNetwork?: string | null;
+  x402Asset?: string | null;
+  payerWallet?: string | null;
+  payeeWallet?: string | null;
+  nanopaymentId?: string | null;
+  settlementNs?: number | null;
   rail?: "circle_arc" | "x402";
 }
 
-function randomHex(len: number) {
-  let s = "0x";
-  const chars = "0123456789abcdef";
-  for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * 16)];
-  return s;
-}
-
-const stepBadge: Record<RunStepStatus, { label: string; className: string; Icon: typeof CheckCircle2 }> = {
-  queued: { label: "Queued", className: "bg-muted text-muted-foreground border-border", Icon: Clock },
-  calling: { label: "Calling…", className: "bg-primary/10 text-primary border-primary/30", Icon: Loader2 },
-  settling: { label: "Settling on Arc", className: "bg-accent/10 text-accent border-accent/30", Icon: Zap },
-  success: { label: "Success", className: "bg-success/10 text-success border-success/30", Icon: CheckCircle2 },
-  failed: { label: "Failed", className: "bg-destructive/10 text-destructive border-destructive/30", Icon: XCircle },
-  timeout: { label: "Timeout", className: "bg-accent/10 text-accent border-accent/30", Icon: Clock },
+const stepBadge: Record<
+  RunStepStatus,
+  { label: string; className: string; Icon: typeof CheckCircle2 }
+> = {
+  queued: {
+    label: "Queued",
+    className: "bg-muted text-muted-foreground border-border",
+    Icon: Clock,
+  },
+  calling: {
+    label: "Calling…",
+    className: "bg-primary/10 text-primary border-primary/30",
+    Icon: Loader2,
+  },
+  settling: {
+    label: "Settling",
+    className: "bg-accent/10 text-accent border-accent/30",
+    Icon: Zap,
+  },
+  success: {
+    label: "Success",
+    className: "bg-success/10 text-success border-success/30",
+    Icon: CheckCircle2,
+  },
+  failed: {
+    label: "Failed",
+    className: "bg-destructive/10 text-destructive border-destructive/30",
+    Icon: XCircle,
+  },
+  timeout: {
+    label: "Timeout",
+    className: "bg-accent/10 text-accent border-accent/30",
+    Icon: Clock,
+  },
 };
 
 const paymentBadge: Record<PaymentStatus, string> = {
@@ -123,20 +100,96 @@ const paymentBadge: Record<PaymentStatus, string> = {
 };
 
 export function ScenarioRunner() {
-  const [scenarioId, setScenarioId] = useState<ScenarioId>("us_onboarding_happy");
+  const qc = useQueryClient();
+  const [selectedFlowId, setSelectedFlowId] = useState<string>("");
+  const [scenarioPreset, setScenarioPreset] =
+    useState<ScenarioPreset>("all_success");
+  const [scenarioStepIndex, setScenarioStepIndex] = useState<string>("0");
   const [running, setRunning] = useState(false);
+  const [pollingEnabled, setPollingEnabled] = useState(false);
   const [steps, setSteps] = useState<RunStep[]>([]);
   const [runId, setRunId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const cancelRef = useRef(false);
+  const lastToastRunIdRef = useRef<string | null>(null);
 
-  const scenario = SCENARIOS.find((s) => s.id === scenarioId)!;
+  const flowsQuery = useQuery({
+    queryKey: ["flows"],
+    queryFn: async () => (await api.flows.list()).flows,
+  });
+
+  const selectedFlow = useMemo(() => {
+    const flows = flowsQuery.data || [];
+    if (selectedFlowId) return flows.find((f) => f.id === selectedFlowId) || null;
+    return flows[0] || null;
+  }, [flowsQuery.data, selectedFlowId]);
+
+  const flowSteps = useMemo<FlowStepConfig[]>(() => {
+    const flow = selectedFlow;
+    if (!flow?.steps?.length) return [];
+    return flow.steps.map((s) => ({ kind: s.type as StepKind, providerId: s.provider }));
+  }, [selectedFlow]);
+
+  const runQuery = useQuery({
+    queryKey: ["run", runId],
+    queryFn: async () => {
+      if (!runId) return null;
+      return (await api.runs.get(runId)).run;
+    },
+    enabled: Boolean(runId),
+    refetchInterval: (query) => {
+      const run = query.state.data as { status?: string } | null | undefined;
+      const shouldPoll =
+        Boolean(runId) &&
+        pollingEnabled &&
+        (running || run?.status === "running");
+      return shouldPoll ? 750 : false;
+    },
+  });
+
+  const shouldPoll = Boolean(runId) && pollingEnabled;
+
+  const logsQuery = useQuery({
+    queryKey: ["logs", "scenario", runId],
+    queryFn: async () => {
+      if (!runId) return [];
+      return (
+        await api.logs.list({
+          runId,
+          limit: 400,
+          hydrate: true,
+          hydrateLimit: 25,
+          hydrateTimeoutMs: 1500,
+        })
+      ).logs;
+    },
+    enabled: Boolean(runId),
+    refetchInterval: () => (shouldPoll ? 750 : false),
+  });
+
+  const startRunMutation = useMutation({
+    mutationFn: async (input: {
+      flowId: string;
+      stepOutcomes: Array<"success" | "failed" | "timeout">;
+    }) => {
+      return (
+        await api.runs.create({
+          flowId: input.flowId,
+          user: { phone: "+14155550182", email: "alex@startup.io" },
+          stepOutcomes: input.stepOutcomes,
+          continueOnFailure: false,
+          async: true,
+        })
+      ).run;
+    },
+  });
 
   const totals = useMemo(() => {
-    const completed = steps.filter((s) => s.status === "success" || s.status === "failed" || s.status === "timeout");
+    const completed = steps.filter(
+      (s) => s.status === "success" || s.status === "failed" || s.status === "timeout",
+    );
     const usdc = steps.reduce((sum, s) => sum + (s.costUsdc ?? 0), 0);
-    const settledNs = completed
-      .map((s) => s.settlementNs ?? 0)
-      .filter((n) => n > 0);
+    const settledNs = completed.map((s) => s.settlementNs ?? 0).filter((n) => n > 0);
     const avgNs = settledNs.length
       ? Math.round(settledNs.reduce((a, b) => a + b, 0) / settledNs.length)
       : 0;
@@ -144,15 +197,16 @@ export function ScenarioRunner() {
     return { usdc, avgNs, paid, total: steps.length, completed: completed.length };
   }, [steps]);
 
-  const initSteps = (scn: ScenarioDef): RunStep[] =>
-    scn.steps.map((kind, i) => {
-      const def = getStep(kind);
-      const provider = def.providers[0];
+  const initSteps = (cfg: FlowStepConfig[]): RunStep[] =>
+    cfg.map((s, i) => {
+      const def = getStep(s.kind);
+      const provider =
+        def.providers.find((p) => p.id === s.providerId)?.name || s.providerId;
       return {
         index: i,
-        kind,
+        kind: s.kind,
         label: def.label,
-        provider: provider.name,
+        provider,
         status: "queued" as RunStepStatus,
       };
     });
@@ -162,145 +216,249 @@ export function ScenarioRunner() {
     setSteps([]);
     setRunId(null);
     setRunning(false);
+    setPollingEnabled(false);
+    setError(null);
   };
 
   const stop = () => {
     cancelRef.current = true;
-    toast.info("Scenario stopped");
+    setRunning(false);
+    setPollingEnabled(false);
+    toast.info("Stopped polling (run continues on server)");
   };
-
-  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
   const run = async () => {
     cancelRef.current = false;
-    const initial = initSteps(scenario);
-    const newRunId = `run_${Date.now().toString(36)}`;
-    setSteps(initial);
-    setRunId(newRunId);
-    setRunning(true);
+    setError(null);
 
-    for (let i = 0; i < initial.length; i++) {
-      if (cancelRef.current) break;
-
-      // 1. Mark calling
-      setSteps((prev) =>
-        prev.map((s) => (s.index === i ? { ...s, status: "calling" } : s)),
-      );
-      const apiLatency = 250 + Math.floor(Math.random() * 700);
-      await sleep(Math.min(apiLatency, 1100));
-      if (cancelRef.current) break;
-
-      // Determine outcome
-      const isFail = scenario.failAt === i;
-      const status: LogStatus = isFail
-        ? scenario.failMode ?? "failed"
-        : "success";
-
-      // 2. Mark settling on Arc
-      setSteps((prev) =>
-        prev.map((s) => (s.index === i ? { ...s, status: "settling" } : s)),
-      );
-      await sleep(450);
-      if (cancelRef.current) break;
-
-      // 3. Build payment receipt
-      const def = getStep(initial[i].kind);
-      const provider = def.providers[0];
-      const baseCost = parseFloat(provider.cost.replace("$", ""));
-      const paymentStatus: PaymentStatus =
-        status === "success" ? "paid" : status === "timeout" ? "pending" : "failed";
-      const settlementNs = 200 + Math.floor(Math.random() * 700);
-
-      setSteps((prev) =>
-        prev.map((s) =>
-          s.index === i
-            ? {
-                ...s,
-                status,
-                paymentStatus,
-                durationMs: apiLatency,
-                costUsdc: paymentStatus === "paid" ? baseCost : 0,
-                arcTxHash: randomHex(64),
-                nanopaymentId: `np_${randomHex(16).slice(2)}`,
-                settlementNs,
-                rail: Math.random() < 0.85 ? "circle_arc" : "x402",
-              }
-            : s,
-        ),
-      );
-
-      // Halt on failure / timeout
-      if (status !== "success") break;
+    if (!selectedFlow) {
+      setError("No flows found. Create and Deploy a flow in Flow Builder first.");
+      return;
+    }
+    if (flowSteps.length === 0) {
+      setError("Selected flow has no steps. Add steps in Flow Builder and Deploy.");
+      return;
     }
 
-    setRunning(false);
-    if (!cancelRef.current) {
-      toast.success(`Scenario complete · ${scenario.name}`, {
-        description: "All nanopayments settled on Arc.",
+    setRunning(true);
+    setPollingEnabled(true);
+    setSteps(initSteps(flowSteps));
+    setRunId(null);
+
+    try {
+      const stepCount = flowSteps.length;
+      const stepOutcomes = Array.from({ length: stepCount }, () => "success" as const);
+      if (scenarioPreset === "fail_step" || scenarioPreset === "timeout_step") {
+        const idx = Math.max(0, Math.min(stepCount - 1, Number(scenarioStepIndex || 0)));
+        stepOutcomes[idx] = scenarioPreset === "fail_step" ? "failed" : "timeout";
+      }
+      const started = await startRunMutation.mutateAsync({
+        flowId: selectedFlow.id,
+        stepOutcomes,
       });
+      setRunId(started.runId);
+      toast.success("Run started", { description: started.runId });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["runs"] }),
+        qc.invalidateQueries({ queryKey: ["logs"] }),
+        qc.invalidateQueries({ queryKey: ["logs", "analytics"] }),
+      ]);
+    } catch (e) {
+      setRunning(false);
+      setPollingEnabled(false);
+      const message = e instanceof Error ? e.message : "Unknown error";
+      setError(message);
+      toast.error("Failed to start scenario", { description: message });
     }
   };
 
+  // Drive UI steps from server run
+  useEffect(() => {
+    const serverRun = runQuery.data;
+    if (!serverRun && !logsQuery.data) return;
+
+    const base = initSteps(flowSteps);
+    const logsSource =
+      serverRun?.steps && serverRun.steps.length > 0
+        ? serverRun.steps
+        : logsQuery.data || [];
+    const logs = [...logsSource].sort(
+      (a, b) => (a.stepIndex ?? 0) - (b.stepIndex ?? 0),
+    );
+
+    const nextIndex = logs.length;
+    const expectedSteps = base.length;
+
+    const mapped = base.map((s) => {
+      const log = logs.find((l) => l.stepIndex === s.index);
+      if (log) {
+        return {
+          ...s,
+          status: log.status,
+          paymentStatus: log.payment?.status,
+          durationMs: log.durationMs,
+          costUsdc: log.costUsdc,
+          requestedAmountUsdc: log.payment?.requestedAmountUsdc ?? null,
+          chargedAmountUsdc: log.payment?.amountUsdc ?? null,
+          arcTxHash: log.arcTxHash,
+          gatewayTransferId: log.payment?.gatewayTransferId || null,
+          gatewayTransferStatus: log.payment?.gatewayTransferStatus || null,
+          gatewayNetwork: log.payment?.gatewayNetwork || null,
+          x402Asset: log.payment?.x402Asset || null,
+          payerWallet: log.payment?.payerWallet || null,
+          payeeWallet: log.payment?.payeeWallet || null,
+          nanopaymentId: log.payment?.nanopaymentId || null,
+          settlementNs: log.payment?.settlementNs ?? null,
+          rail: log.payment?.rail,
+        } satisfies RunStep;
+      }
+      const shouldShowLiveStep =
+        (serverRun?.status === "running" || (running && pollingEnabled)) &&
+        s.index === Math.min(nextIndex, expectedSteps - 1);
+      if (shouldShowLiveStep) {
+        return { ...s, status: "calling" as const };
+      }
+      return s;
+    });
+
+    setSteps(mapped);
+
+    const fallbackDone =
+      !serverRun &&
+      logs.length > 0 &&
+      (logs.length >= expectedSteps || logs[logs.length - 1]?.status !== "success");
+
+    if ((serverRun && serverRun.status !== "running") || fallbackDone) {
+      setRunning(false);
+      setPollingEnabled(false);
+      const toastKey = serverRun?.runId || runId;
+      if (toastKey && lastToastRunIdRef.current !== toastKey) {
+        lastToastRunIdRef.current = toastKey;
+        const fallbackStatus = logs[logs.length - 1]?.status;
+        const isSuccess =
+          serverRun?.status === "success" ||
+          (fallbackDone && logs.length >= expectedSteps && fallbackStatus === "success");
+        toast.success(`Run complete · ${serverRun?.flow || "flow"}`, {
+          description: isSuccess
+            ? "All steps succeeded."
+            : `Run ended: ${serverRun?.status || fallbackStatus || "unknown"}`,
+        });
+      }
+    }
+  }, [
+    runQuery.data,
+    logsQuery.data,
+    selectedFlow?.id,
+    flowSteps,
+    running,
+    pollingEnabled,
+    runId,
+  ]);
+
+  useEffect(() => {
+    if (!runQuery.isError) return;
+    const message =
+      runQuery.error instanceof Error ? runQuery.error.message : "Failed to load run";
+    setError(message);
+  }, [runQuery.isError, runQuery.error]);
+
   return (
     <div className="space-y-4">
-      {/* Banner */}
       <div className="gradient-card border border-primary/30 rounded-xl p-4 flex items-start gap-3">
         <div className="h-10 w-10 rounded-lg gradient-primary flex items-center justify-center shrink-0 shadow-glow">
           <Rocket className="h-5 w-5 text-primary-foreground" />
         </div>
         <div className="flex-1">
-          <h3 className="font-semibold text-sm">Run a scenario</h3>
+          <h3 className="font-semibold text-sm">Test your flow end-to-end</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Trigger a full end-to-end mock flow and watch each API call settle on Circle Arc in
-            real time. Every step emits a nanopayment receipt in USDC.
+            Execute a complete validation flow and watch each API call complete with real Circle Gateway payments in real-time.
           </p>
         </div>
         <span className="text-[10px] uppercase tracking-wider text-primary border border-primary/30 bg-primary/10 px-2 py-1 rounded-md">
-          Mock · Arc testnet
+          Realtime
         </span>
       </div>
 
       <div className="grid lg:grid-cols-[380px_1fr] gap-4">
-        {/* Config */}
         <div className="gradient-card border border-border rounded-xl p-5 space-y-4 h-fit">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Scenario
+            Run Config
           </h3>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-medium">Preset</label>
+            <label className="text-xs font-medium">Flow</label>
             <Select
-              value={scenarioId}
+              value={selectedFlow?.id || ""}
               onValueChange={(v) => {
-                setScenarioId(v as ScenarioId);
+                setSelectedFlowId(v);
                 setSteps([]);
                 setRunId(null);
               }}
               disabled={running}
             >
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue placeholder="Select a flow" />
               </SelectTrigger>
               <SelectContent>
-                {SCENARIOS.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.name}
+                {(flowsQuery.data || []).map((f) => (
+                  <SelectItem key={f.id} value={f.id}>
+                    {f.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
 
-          <p className="text-xs text-muted-foreground">{scenario.description}</p>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium">Scenario</label>
+            <Select
+              value={scenarioPreset}
+              onValueChange={(v) => setScenarioPreset(v as ScenarioPreset)}
+              disabled={running}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all_success">All success (paid demo)</SelectItem>
+                <SelectItem value="fail_step">Fail at step…</SelectItem>
+                <SelectItem value="timeout_step">Timeout at step…</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {(scenarioPreset === "fail_step" || scenarioPreset === "timeout_step") && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Fail step</label>
+              <Select
+                value={scenarioStepIndex}
+                onValueChange={setScenarioStepIndex}
+                disabled={running}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {flowSteps.map((_, i) => (
+                    <SelectItem key={i} value={String(i)}>
+                      Step {i + 1}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Steps in flow
             </label>
             <ol className="space-y-1.5">
-              {scenario.steps.map((kind, i) => {
-                const def = getStep(kind);
+              {flowSteps.map((s, i) => {
+                const def = getStep(s.kind);
                 const Icon = def.icon;
+                const provider =
+                  def.providers.find((p) => p.id === s.providerId)?.name || s.providerId;
                 return (
                   <li
                     key={i}
@@ -311,9 +469,7 @@ export function ScenarioRunner() {
                     </span>
                     <Icon className="h-3.5 w-3.5 text-primary" />
                     <span className="font-medium">{def.label}</span>
-                    <span className="ml-auto text-muted-foreground">
-                      {def.providers[0].name}
-                    </span>
+                    <span className="ml-auto text-muted-foreground">{provider}</span>
                   </li>
                 );
               })}
@@ -322,9 +478,14 @@ export function ScenarioRunner() {
 
           <div className="flex gap-2 pt-1">
             {!running ? (
-              <Button variant="hero" onClick={run} className="flex-1">
+              <Button
+                variant="hero"
+                onClick={run}
+                className="flex-1"
+                disabled={startRunMutation.isPending}
+              >
                 <Play className="h-3.5 w-3.5" />
-                Run scenario
+                {startRunMutation.isPending ? "Starting…" : "Run scenario"}
               </Button>
             ) : (
               <Button variant="outline" onClick={stop} className="flex-1">
@@ -332,19 +493,28 @@ export function ScenarioRunner() {
                 Stop
               </Button>
             )}
-            <Button variant="outline" onClick={reset} disabled={running || steps.length === 0}>
+            <Button
+              variant="outline"
+              onClick={reset}
+              disabled={running || steps.length === 0}
+            >
               <RotateCcw className="h-3.5 w-3.5" />
             </Button>
           </div>
+
+          {error && (
+            <div className="text-xs text-destructive bg-destructive/10 border border-destructive/30 rounded-md p-2">
+              {error}
+            </div>
+          )}
         </div>
 
-        {/* Live execution */}
         <div className="gradient-card border border-border rounded-xl overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div>
               <h3 className="text-sm font-semibold">Live execution</h3>
               <p className="text-xs text-muted-foreground font-mono">
-                {runId ? `${runId} · ${scenario.flow}` : "No run yet"}
+                {runId && selectedFlow ? `${runId} · ${selectedFlow.name}` : "No run yet"}
               </p>
             </div>
             {steps.length > 0 && (
@@ -372,19 +542,70 @@ export function ScenarioRunner() {
               <div className="h-12 w-12 rounded-full border-2 border-dashed border-border flex items-center justify-center mx-auto mb-3">
                 <Rocket className="h-5 w-5 text-muted-foreground" />
               </div>
-              <p className="text-sm font-medium">Pick a scenario and hit run</p>
+              <p className="text-sm font-medium">Choose a scenario and run it</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Each step will call the provider and settle a nanopayment on Arc.
+                Each step charges your Circle Gateway balance in real-time as it executes.
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-border max-h-[640px] overflow-y-auto">
+            <div>
+              <div className="px-4 py-3 border-b border-border bg-background/30">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+                  Flow path
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {steps.map((s, idx) => {
+                    const isActive = s.status === "calling" || s.status === "settling";
+                    const tone =
+                      s.status === "success"
+                        ? "bg-success/10 text-success border-success/30"
+                        : s.status === "failed"
+                          ? "bg-destructive/10 text-destructive border-destructive/30"
+                          : s.status === "timeout"
+                            ? "bg-accent/10 text-accent border-accent/30"
+                            : isActive
+                              ? "bg-primary/10 text-primary border-primary/30"
+                              : "bg-muted text-muted-foreground border-border";
+                    return (
+                      <div key={s.index} className="flex items-center gap-1.5">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] ${tone} ${
+                            isActive ? "animate-pulse" : ""
+                          }`}
+                          title={`${s.label} · ${s.status}`}
+                        >
+                          <span className="font-mono text-[10px] opacity-80">#{idx + 1}</span>
+                          <span className="font-medium">{s.label}</span>
+                        </span>
+                        {idx < steps.length - 1 && (
+                          <span className="text-muted-foreground/60 text-xs">→</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {shouldPoll && (
+                  <div className="mt-2 text-[11px] text-muted-foreground">
+                    Running… step updates stream live.
+                  </div>
+                )}
+              </div>
+
+              <div className="divide-y divide-border max-h-[640px] overflow-y-auto">
               {steps.map((s) => {
                 const meta = stepBadge[s.status];
                 const StatusIcon = meta.Icon;
                 const isLive = s.status === "calling" || s.status === "settling";
                 const def = getStep(s.kind);
                 const StepIcon = def.icon;
+
+                const txHash = normalizeEvmTxHash(s.arcTxHash || null);
+                const txUrl = arcTxUrl(txHash);
+                const transferId = s.gatewayTransferId || null;
+                const transferUrl = transferId
+                  ? `${import.meta.env.VITE_API_URL || "http://localhost:8787"}/api/x402/transfers/${encodeURIComponent(transferId)}`
+                  : null;
+
                 return (
                   <div key={s.index} className="p-4 space-y-2.5">
                     <div className="flex flex-wrap items-center gap-3">
@@ -422,39 +643,120 @@ export function ScenarioRunner() {
                       <div className="grid sm:grid-cols-2 gap-2 bg-background/40 border border-border rounded-md p-3 text-xs">
                         <div>
                           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                            Amount
+                            Amount (USDC)
                           </div>
                           <div className="font-mono tabular-nums">
-                            {(s.costUsdc ?? 0).toFixed(4)} USDC
+                            {typeof s.chargedAmountUsdc === "number"
+                              ? s.chargedAmountUsdc.toFixed(6)
+                              : (s.costUsdc ?? 0).toFixed(6)}{" "}
+                            USDC
                           </div>
+                          {typeof s.requestedAmountUsdc === "number" &&
+                            typeof s.chargedAmountUsdc === "number" &&
+                            s.requestedAmountUsdc !== s.chargedAmountUsdc && (
+                              <div className="text-[11px] text-muted-foreground font-mono">
+                                requested {s.requestedAmountUsdc.toFixed(6)} USDC
+                              </div>
+                            )}
                         </div>
                         <div>
                           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                            Rail · Latency
+                            Rail · Finality
                           </div>
                           <div className="font-mono">
-                            {s.rail} · {s.settlementNs}ns
+                            {s.rail === "x402"
+                              ? "Circle Gateway x402"
+                              : s.rail === "circle_arc"
+                                ? "Circle Arc"
+                                : "—"}{" "}
+                            · {s.settlementNs ?? "—"}ns
                           </div>
+                          {s.gatewayNetwork && (
+                            <div className="text-[11px] text-muted-foreground font-mono truncate">
+                              {s.gatewayNetwork}
+                            </div>
+                          )}
                         </div>
+
                         <div className="sm:col-span-2 min-w-0">
                           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
                             Arc tx
                           </div>
-                          <div className="font-mono truncate text-primary">
-                            {s.arcTxHash}
-                          </div>
+                          {txUrl ? (
+                            <a
+                              href={txUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-primary hover:text-primary/80 transition-smooth font-mono truncate"
+                            >
+                              {txHash}
+                              <ExternalLink className="h-3 w-3 shrink-0" />
+                            </a>
+                          ) : (
+                            <div className="font-mono text-muted-foreground truncate">
+                              Batched (no on-chain hash yet)
+                            </div>
+                          )}
                         </div>
+
+                        {transferId && (
+                          <div className="sm:col-span-2 min-w-0">
+                            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                              Transfer ID
+                            </div>
+                            <div className="inline-flex items-center gap-2 min-w-0">
+                              <div className="font-mono truncate">{transferId}</div>
+                              {s.gatewayTransferStatus && (
+                                <span className="text-[10px] uppercase tracking-wider text-muted-foreground border border-border px-1.5 py-0.5 rounded-md">
+                                  {s.gatewayTransferStatus}
+                                </span>
+                              )}
+                              {transferUrl && (
+                                <a
+                                  href={transferUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground border border-border px-1.5 py-0.5 rounded-md transition-smooth"
+                                  title="Open Gateway transfer JSON"
+                                >
+                                  JSON <ExternalLink className="h-3 w-3" />
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
                         <div className="sm:col-span-2 min-w-0">
                           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
                             Nanopayment id
                           </div>
-                          <div className="font-mono truncate">{s.nanopaymentId}</div>
+                          <div className="font-mono truncate">
+                            {s.nanopaymentId || "—"}
+                          </div>
                         </div>
+
+                        {(s.payerWallet || s.payeeWallet) && (
+                          <div className="sm:col-span-2 min-w-0 grid sm:grid-cols-2 gap-2">
+                            <div className="min-w-0">
+                              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                Payer
+                              </div>
+                              <div className="font-mono truncate">{s.payerWallet || "—"}</div>
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                Payee
+                              </div>
+                              <div className="font-mono truncate">{s.payeeWallet || "—"}</div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
                 );
               })}
+              </div>
             </div>
           )}
         </div>
