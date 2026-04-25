@@ -1,7 +1,15 @@
 import { mkdir, readFile, writeFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
-const dataDir = path.resolve(process.cwd(), "server", "data");
+function resolveDataDir() {
+  if (process.env.DATA_DIR) return path.resolve(process.env.DATA_DIR);
+  // Vercel (and many serverless hosts) expose a writable /tmp but no persistent filesystem.
+  // Using /tmp at least enables flows/logs within a warm instance for demos.
+  if (process.env.VERCEL) return path.join("/tmp", "validly-data");
+  return path.resolve(process.cwd(), "server", "data");
+}
+
+const dataDir = resolveDataDir();
 
 async function ensureDataDir() {
   await mkdir(dataDir, { recursive: true });

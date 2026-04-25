@@ -602,8 +602,10 @@ export function ScenarioRunner() {
                 const txHash = normalizeEvmTxHash(s.arcTxHash || null);
                 const txUrl = arcTxUrl(txHash);
                 const transferId = s.gatewayTransferId || null;
+                const apiBaseUrl =
+                  import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:8787" : "");
                 const transferUrl = transferId
-                  ? `${import.meta.env.VITE_API_URL || "http://localhost:8787"}/api/x402/transfers/${encodeURIComponent(transferId)}`
+                  ? `${apiBaseUrl}/api/x402/transfers/${encodeURIComponent(transferId)}`
                   : null;
 
                 return (

@@ -140,11 +140,20 @@ If missing, the server won't serve your React app!
 
 ## Vercel-Specific Issues
 
-Vercel is **NOT recommended** because it's designed for serverless/edge functions, not long-running Node servers.
+Vercel deploys this project as:
+- Static frontend (`dist/`)
+- Serverless backend functions (`api/*`) that serve `/api/...`
 
 ### If you deployed to Vercel anyway:
 
-**Problem**: Vercel deploys the frontend but can't run your Node.js server.
+**Problem**: You only see static UI; flows don’t save; no flow logs.
+
+**Cause**: `/api/...` requests are getting rewritten to `index.html` (or you deployed without the `api/*` functions).
+
+**Fix**:
+1. Make sure `flexi-flow-validation/api/[...path].mjs` exists in your deployment
+2. Make sure `flexi-flow-validation/vercel.json` does **not** rewrite `/api/*` to `index.html`
+3. Redeploy
 
 **Solution 1: Deploy backend separately**
 1. Deploy backend to Railway/Render

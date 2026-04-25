@@ -3,23 +3,9 @@
   "buildCommand": "npm run build",
   "installCommand": "npm install",
   "outputDirectory": "dist",
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist"
-      }
-    }
-  ],
-  "routes": [
-    {
-      "src": "/assets/(.*)",
-      "dest": "/assets/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/assets/(.*)", "destination": "/assets/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

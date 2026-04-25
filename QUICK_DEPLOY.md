@@ -26,6 +26,10 @@ Follow the prompts:
 - In which directory is your code located? **.**
 - Want to override settings? **N**
 
+Notes:
+- This repo includes Vercel serverless API routes under `api/*` (your frontend calls `/api/...` on the same domain).
+- Flow/runs/logs are stored in the serverless writable temp directory (`/tmp`) on Vercel, so they can reset between cold starts; use Render/Railway + a real DB for persistence.
+
 ### Step 4: Set Environment Variables
 
 Copy-paste this command block (all at once):

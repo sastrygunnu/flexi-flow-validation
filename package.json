@@ -53,6 +53,7 @@
     "@radix-ui/react-tooltip": "^1.2.7",
     "@supabase/supabase-js": "^2.104.1",
     "@tanstack/react-query": "^5.83.0",
+    "@circle-fin/developer-controlled-wallets": "^10.3.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -77,7 +78,6 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@circle-fin/developer-controlled-wallets": "^10.3.0",
     "@eslint/js": "^9.32.0",
     "@tailwindcss/typography": "^0.5.16",
     "@testing-library/jest-dom": "^6.6.0",

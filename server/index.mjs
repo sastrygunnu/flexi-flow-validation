@@ -63,7 +63,7 @@ function arcRpcUrl() {
 }
 
 function arcExplorerBaseUrl() {
-  const raw = process.env.ARC_EXPLORER_BASE_URL;
+  const raw = process.env.ARC_EXPLORER_BASE_URL || "";
   return raw.replace(/\/+$/, "");
 }
 
@@ -751,7 +751,7 @@ function sampleOutput(kind, status) {
   return { riskScore: 12, decision: "allow" };
 }
 
-async function handle(req, res) {
+export async function handle(req, res) {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
   const { pathname } = url;
 
@@ -767,6 +767,11 @@ async function handle(req, res) {
 
   if (pathname === "/api/health" && req.method === "GET") {
     json(res, 200, { ok: true });
+    return;
+  }
+
+  if (pathname === "/api" && req.method === "GET") {
+    json(res, 200, { ok: true, hint: "Use /api/health" });
     return;
   }
 
@@ -1328,13 +1333,22 @@ async function handle(req, res) {
   notFound(res);
 }
 
-const server = http.createServer((req, res) => {
-  handle(req, res).catch((e) => {
-    json(res, 500, { error: { message: e instanceof Error ? e.message : "Server error" } });
-  });
-});
+function shouldStartHttpServer() {
+  if (process.env.VERCEL) return false;
+  if (process.env.AWS_LAMBDA_FUNCTION_NAME) return false;
+  if (process.env.SERVERLESS) return false;
+  return true;
+}
 
-server.listen(PORT, () => {
-  // eslint-disable-next-line no-console
-  console.log(`[api] listening on http://localhost:${PORT}`);
-});
+if (shouldStartHttpServer()) {
+  const server = http.createServer((req, res) => {
+    handle(req, res).catch((e) => {
+      json(res, 500, { error: { message: e instanceof Error ? e.message : "Server error" } });
+    });
+  });
+
+  server.listen(PORT, () => {
+    // eslint-disable-next-line no-console
+    console.log(`[api] listening on http://localhost:${PORT}`);
+  });
+}

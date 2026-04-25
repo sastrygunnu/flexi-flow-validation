@@ -111,11 +111,17 @@ Visit your Render URL: `https://validly.onrender.com`
 
 ## Deploy to Vercel
 
-Vercel is **NOT recommended** for this project because it requires serverless functions, which adds complexity. Use Railway or Render instead.
+Vercel works for a quick demo using serverless functions (API under `/api/*`), but it’s still **not ideal** for persistence because serverless filesystems are ephemeral. Use Railway/Render + a real database for reliable saved flows/logs.
 
 If you must use Vercel:
 
-### Option 1: Frontend Only on Vercel + Backend Elsewhere
+### Option 1: Full-stack on Vercel (Fast demo)
+
+- Deploy with project root `flexi-flow-validation`
+- Set the same backend env vars (Circle/Gateway/Arc) in Vercel → Project → Settings → Environment Variables
+- Expect flows/logs to reset occasionally (stored in `/tmp` on serverless)
+
+### Option 2: Frontend Only on Vercel + Backend Elsewhere
 
 1. **Deploy backend to Railway/Render**
 2. **Deploy frontend to Vercel**
@@ -124,7 +130,7 @@ If you must use Vercel:
    VITE_API_URL=https://validly-production-xxxx.up.railway.app
    ```
 
-### Option 2: Use Railway/Render (Easier)
+### Option 3: Use Railway/Render (Easier)
 
 Just use Railway or Render - they handle full-stack apps better.
 
