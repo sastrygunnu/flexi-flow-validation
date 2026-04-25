@@ -374,8 +374,8 @@ function hasCirclePaymentConfig() {
 }
 
 function allowMockPayments() {
-  const raw = process.env.ALLOW_MOCK_PAYMENTS;
-  return raw === "1" || String(raw || "").toLowerCase() === "true";
+  // Mock payments are intentionally disabled.
+  return false;
 }
 
 async function createCircleX402Receipt({ amountAtomic, payTo, memo, resource }) {
@@ -543,8 +543,16 @@ async function executeRun({ runId, flow, body, forcedStatus, stepOutcomes, conti
   if (runIdx === -1) return;
 
   const paymentsEnabled = hasCirclePaymentConfig();
-  const payer = paymentsEnabled ? await getPayerWallet().catch(() => null) : null;
-  const mockPayerWallet = `0x${crypto.randomBytes(20).toString("hex")}`;
+  if (!paymentsEnabled) {
+    const run = db.runs[runIdx];
+    run.status = "failed";
+    run.endedAt = new Date().toISOString();
+    db.runs[runIdx] = run;
+    await saveDb(db, { flows: false, runs: true, logs: false });
+    return;
+  }
+
+  const payer = await getPayerWallet().catch(() => null);
 
   const run = db.runs[runIdx];
   const steps = Array.isArray(run.steps) ? run.steps : [];
@@ -579,7 +587,7 @@ async function executeRun({ runId, flow, body, forcedStatus, stepOutcomes, conti
     let nanopaymentId = null;
     let settlementNs = null;
     let invoiceId = null;
-    let payerWallet = payer?.address || mockPayerWallet;
+    let payerWallet = payer?.address || "";
     let payeeWallet = payTo || `0x${crypto.randomBytes(20).toString("hex")}`;
     let paymentReason;
     let gatewayTransferId;
@@ -1187,12 +1195,12 @@ export async function handle(req, res) {
       return;
     }
 
-    if (!allowMockPayments() && !hasCirclePaymentConfig()) {
+    if (!hasCirclePaymentConfig()) {
       json(res, 503, {
         ok: false,
         error: {
           message:
-            "Circle payments are not configured. Set CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET, PAYER_WALLET_ID, and PAY_TO_ADDRESS in .env (or set ALLOW_MOCK_PAYMENTS=true for demo-only mode).",
+            "Circle payments are not configured. Set CIRCLE_API_KEY, CIRCLE_ENTITY_SECRET, PAYER_WALLET_ID, and PAY_TO_ADDRESS in your environment variables.",
         },
       });
       return;
